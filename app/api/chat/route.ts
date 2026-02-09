@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { calculateCost, DEFAULT_MODEL_ID, findModelSpec } from "@/lib/models";
+import { calculateCost, DEFAULT_MODEL_ID } from "@/lib/models";
 import { callProvider } from "@/lib/providers";
 import { buildRagSystemPrompt, trimConversation } from "@/lib/rag";
 import { retrieveTopChunks } from "@/lib/retrieval";
+import { getServerModelCatalog, resolveServerModelId } from "@/lib/server-models";
 import type { ChatMessageInput } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequestBody;
     const allowClientApiKeyOverride = process.env.ALLOW_CLIENT_API_KEY_OVERRIDE === "true";
+    const modelCatalog = getServerModelCatalog({ allowClientApiKeyOverride });
     const messages = normalizeMessages(body.messages);
 
     if (!messages.length) {
@@ -32,10 +34,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A user message is required." }, { status: 400 });
     }
 
-    const requestedModelId = body.modelId ?? DEFAULT_MODEL_ID;
-    const modelId = findModelSpec(requestedModelId) ? requestedModelId : DEFAULT_MODEL_ID;
-    if (!findModelSpec(modelId)) {
-      return NextResponse.json({ error: "No supported models are configured." }, { status: 500 });
+    const modelId = resolveServerModelId(body.modelId, modelCatalog, DEFAULT_MODEL_ID);
+    if (!modelId) {
+      return NextResponse.json(
+        { error: "No supported models are configured. Set at least one provider API key." },
+        { status: 500 }
+      );
     }
 
     const topK = clampNumber(body.topK, 2, 10, 6);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { MODEL_SPECS } from "@/lib/models";
 import { getChunkStats } from "@/lib/retrieval";
+import { getServerModelCatalog } from "@/lib/server-models";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,10 +8,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const stats = await getChunkStats();
+    const allowClientApiKeyOverride = process.env.ALLOW_CLIENT_API_KEY_OVERRIDE === "true";
+    const modelCatalog = getServerModelCatalog({ allowClientApiKeyOverride });
 
     return NextResponse.json({
       dataset: stats,
-      models: MODEL_SPECS,
+      models: modelCatalog,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {

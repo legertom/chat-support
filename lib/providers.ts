@@ -55,7 +55,6 @@ async function callOpenAi(
 
   const requestBody: Record<string, unknown> = {
     model: params.apiModel,
-    temperature: params.temperature,
     messages: [
       { role: "system", content: params.systemPrompt },
       ...params.messages.map((message) => ({
@@ -64,6 +63,10 @@ async function callOpenAi(
       })),
     ],
   };
+
+  if (supportsCustomTemperature(params.apiModel)) {
+    requestBody.temperature = params.temperature;
+  }
 
   if (usesMaxCompletionTokens(params.apiModel)) {
     requestBody.max_completion_tokens = params.maxOutputTokens;
@@ -321,4 +324,8 @@ function extractErrorMessage(json: Record<string, unknown>): string {
 
 function usesMaxCompletionTokens(model: string): boolean {
   return model.startsWith("gpt-5");
+}
+
+function supportsCustomTemperature(model: string): boolean {
+  return !model.startsWith("gpt-5");
 }

@@ -150,6 +150,7 @@ This repo now includes a Next.js app that sits directly on top of your local `da
 - Multi-model chat with OpenAI, Anthropic (Opus/Sonnet/Haiku), and Gemini
 - Retrieval-Augmented Generation (RAG) from local Clever support chunks
 - Source links/snippets for each answer
+- Model selector labels include input/output cost per 1M tokens
 - Per-response token usage + USD cost
 - Thread-level token and cost totals
 - Local API key override in the UI (stored in browser local storage)
@@ -194,6 +195,8 @@ Recommended production mode is server-side keys only:
 - Keep `NEXT_PUBLIC_ALLOW_CLIENT_API_KEY_OVERRIDE=false`
 
 If you want to allow temporary user-supplied keys in the browser UI, set both override vars above to `true`.
+
+When client key override is disabled, the app only shows models for providers with a configured server-side API key.
 
 ### Simple auth protection (Basic Auth)
 

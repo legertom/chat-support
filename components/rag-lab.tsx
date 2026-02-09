@@ -191,6 +191,10 @@ export function RagLab() {
     () => catalog.find((model) => model.id === modelId) ?? findModelSpec(modelId) ?? catalog[0] ?? MODEL_SPECS[0],
     [catalog, modelId]
   );
+  const modelUsesFixedTemperature = useMemo(
+    () => selectedModel?.provider === "openai" && selectedModel.apiModel.startsWith("gpt-5"),
+    [selectedModel]
+  );
   const orderedThreads = useMemo(() => sortThreads(threads), [threads]);
   const activeThread = useMemo(
     () => orderedThreads.find((thread) => thread.id === activeThreadId) ?? null,
@@ -289,7 +293,7 @@ export function RagLab() {
             content: message.content,
           })),
           modelId,
-          temperature,
+          temperature: modelUsesFixedTemperature ? 1 : temperature,
           topK,
           maxOutputTokens,
           apiKey: ALLOW_CLIENT_API_KEY_OVERRIDE ? apiKey.trim() || undefined : undefined,
@@ -581,7 +585,7 @@ export function RagLab() {
                 <optgroup key={provider} label={provider.toUpperCase()}>
                   {providerModels.map((model) => (
                     <option value={model.id} key={model.id}>
-                      {model.label}
+                      {formatModelOptionLabel(model)}
                     </option>
                   ))}
                 </optgroup>
@@ -635,13 +639,14 @@ export function RagLab() {
           </label>
 
           <label>
-            Temperature ({temperature.toFixed(2)})
+            Temperature ({modelUsesFixedTemperature ? "1.00 (fixed for GPT-5)" : temperature.toFixed(2)})
             <input
               type="range"
               min={0}
               max={1.2}
               step={0.05}
-              value={temperature}
+              value={modelUsesFixedTemperature ? 1 : temperature}
+              disabled={modelUsesFixedTemperature}
               onChange={(event) => setTemperature(Number(event.target.value))}
             />
           </label>
@@ -691,6 +696,19 @@ function groupModelsByProvider(models: ModelSpec[]): Record<string, ModelSpec[]>
     grouped[model.provider].push(model);
   }
   return grouped;
+}
+
+function formatModelOptionLabel(model: ModelSpec): string {
+  return `${model.label} (${formatRateUsd(model.inputPerMillionUsd)} in, ${formatRateUsd(
+    model.outputPerMillionUsd
+  )} out /1M tok)`;
+}
+
+function formatRateUsd(value: number): string {
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  })}`;
 }
 
 function coerceModelId(candidate: string | undefined, catalog: ModelSpec[]): string {
