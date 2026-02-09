@@ -1,0 +1,24 @@
+base_url: "https://support.clever.com"
+use_playwright: "true"
+obey_robots: false
+concurrency: 2
+rate_limit_rps: 1.0
+
+playwright:
+  storage_state_path: "data/storage_state.json"
+  login:
+    enabled: true
+    login_url: "https://support.clever.com/CleverLogin"
+    username_selector: "input[type='email'], input[name='username'], input[name='email']"
+    password_selector: "input[type='password'], input[name='password']"
+    submit_selector: "button[type='submit'], input[type='submit']"
+    username_env: "SUPPORT_USER"
+    password_env: "SUPPORT_PASS"
+
+article_discovery:
+  article_url_patterns:
+    - "/s/article/"
+    - "/article/"
+    - "/articles/"
+  category_paths:
+    - "/s/"

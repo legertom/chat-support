@@ -1,0 +1,85 @@
+base_url: "https://support.clever.com"
+user_agent: "SupportCleverRAGScraper/1.0 (+https://support.clever.com)"
+rate_limit_rps: 1.5
+concurrency: 4
+obey_robots: true
+use_playwright: "auto" # true|false|auto
+save_raw_html: false
+save_screenshots: false
+max_urls: null
+
+paths:
+  data_dir: "data"
+  urls_path: "data/urls.json"
+  articles_path: "data/articles.jsonl"
+  chunks_path: "data/chunks.jsonl"
+  errors_path: "data/errors.jsonl"
+  manifest_path: "data/manifest.json"
+  cache_path: "data/cache.sqlite"
+  raw_html_dir: "data/raw_html"
+  screenshots_dir: "data/screenshots"
+
+robots:
+  allow_override: false
+
+fetch:
+  timeout_seconds: 30
+  retries: 3
+  backoff_base: 1.5
+  backoff_max_seconds: 30
+  headers: {}
+  cookies: {}
+
+playwright:
+  storage_state_path: null
+  login:
+    enabled: false
+    login_url: null
+    username_selector: null
+    password_selector: null
+    submit_selector: null
+    username_env: "SUPPORT_USER"
+    password_env: "SUPPORT_PASS"
+
+article_discovery:
+  article_url_patterns:
+    - "/s/article/"
+    - "/article/"
+  category_paths:
+    - "/s/"
+  search:
+    enabled: false
+    endpoint: null
+    query_param: "q"
+    page_param: "page"
+    page_start: 0
+    page_size: 50
+
+extraction:
+  min_body_chars: 500
+  selectors:
+    - "article"
+    - "[data-aura-class*='knowledge']"
+    - ".forceCommunityArticleDetail"
+    - ".slds-rich-text-editor__output"
+    - ".knowledgeArticle"
+  remove_selectors:
+    - "nav"
+    - "header"
+    - "footer"
+    - "aside"
+    - "script"
+    - "style"
+    - ".slds-breadcrumb"
+    - ".breadcrumbs"
+    - ".helpful"
+    - ".feedback"
+    - ".survey"
+    - ".related"
+    - ".article-related"
+    - ".vote"
+
+chunking:
+  target_tokens: 350
+  min_tokens: 200
+  max_tokens: 500

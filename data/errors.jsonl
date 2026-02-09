@@ -1,0 +1,5 @@
+{"url": "https://support.clever.com/s/articles/202084503?language=en_US", "error": "'NoneType' object has no attribute 'get'", "timestamp": "2026-02-08T02:30:16.616604+00:00"}
+{"url": "https://support.clever.com/s/articles/360039080111?language=en_US", "error": "Extracted body too short", "timestamp": "2026-02-08T02:35:21.692841+00:00"}
+{"url": "https://support.clever.com/s/articles/360039081031?language=en_US", "error": "Extracted body too short", "timestamp": "2026-02-08T02:35:23.013575+00:00"}
+{"url": "https://support.clever.com/s/articles/360040417231?language=en_US", "error": "Missing or empty title", "timestamp": "2026-02-08T02:35:38.828580+00:00"}
+{"url": "https://support.clever.com/s/articles/360040622212?language=en_US", "error": "Extracted body too short", "timestamp": "2026-02-08T02:35:44.571876+00:00"}

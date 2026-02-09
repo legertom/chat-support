@@ -1,0 +1,15 @@
+# Node
+node_modules/
+.next/
+out/
+
+# Python
+.venv/
+.pytest_cache/
+.pycache_local/
+__pycache__/
+
+# Local config and generated data
+.env
+.env.local
+.DS_Store

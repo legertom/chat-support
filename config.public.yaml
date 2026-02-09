@@ -1,0 +1,14 @@
+base_url: "https://support.clever.com"
+use_playwright: "true"
+obey_robots: false
+concurrency: 2
+rate_limit_rps: 1.0
+
+article_discovery:
+  article_url_patterns:
+    - "/s/articles/"
+    - "/s/article/"
+    - "/article/"
+    - "/articles/"
+  category_paths:
+    - "/s/"
