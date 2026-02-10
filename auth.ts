@@ -150,11 +150,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (account?.provider === "credentials") {
         if (!email) {
+          console.warn("[auth][credentials] missing normalized email in signIn callback");
           return getErrorRedirect("missing_email");
         }
         if (existingUser?.status === "disabled") {
+          console.warn("[auth][credentials] disabled user blocked", { email });
           return getErrorRedirect("disabled_user");
         }
+        console.info("[auth][credentials] sign-in callback accepted", {
+          email,
+          existingUserStatus: existingUser?.status ?? null,
+        });
         return true;
       }
 
@@ -203,14 +209,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async signIn({ user, account }) {
       const email = normalizeMaybeEmail(user.email);
       if (!email) {
+        console.warn("[auth][events] signIn event skipped due to missing normalized email");
         return;
       }
 
-      await provisionUserOnSignIn({
-        email,
-        now: new Date(),
-        preferredRole: account?.provider === "credentials" ? getBasicAuthRole() : undefined,
-      });
+      try {
+        await provisionUserOnSignIn({
+          email,
+          now: new Date(),
+          preferredRole: account?.provider === "credentials" ? getBasicAuthRole() : undefined,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[auth][events] signIn provisioning failed", {
+          email,
+          provider: account?.provider ?? "unknown",
+          message,
+        });
+        throw error;
+      }
     },
   },
   session: {

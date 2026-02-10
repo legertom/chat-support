@@ -4,22 +4,22 @@ import { signIn } from "next-auth/react";
 import { FormEvent, useState, useTransition } from "react";
 
 function resolveSignInErrorCode(result: { error?: string | null; url?: string | null } | null): string | null {
-  const direct = result?.error?.trim();
-  if (direct) {
-    return direct;
-  }
+  const direct = result?.error?.trim() || null;
 
   const redirectUrl = result?.url?.trim();
   if (!redirectUrl) {
-    return null;
+    return direct;
   }
 
   try {
     const parsed = new URL(redirectUrl, window.location.origin);
     const queryError = parsed.searchParams.get("error")?.trim();
-    return queryError || null;
+    if (queryError && (!direct || direct.toLowerCase() === "accessdenied")) {
+      return queryError;
+    }
+    return direct ?? queryError ?? null;
   } catch {
-    return null;
+    return direct;
   }
 }
 
@@ -43,6 +43,9 @@ function toSignInErrorMessage(code: string | null): string {
   }
   if (normalized === "invite_required") {
     return "This email is not allowed yet. Request an invite from an admin.";
+  }
+  if (normalized === "accessdenied") {
+    return "Sign in was denied by server policy. Check /api/auth/callback/credentials logs in Vercel for the exact reason.";
   }
   return `Sign in failed (${code}). Check /api/auth/callback/credentials logs in Vercel.`;
 }
