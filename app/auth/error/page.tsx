@@ -2,7 +2,7 @@ import Link from "next/link";
 import { authErrorToMessage } from "@/lib/auth-logic";
 import { getMissingSignInEnvVars } from "@/lib/auth-env";
 
-const KNOWN_ERRORS = new Set(["missing_email", "unverified_email", "disabled_user", "invite_required"]);
+const KNOWN_ERRORS = new Set(["missing_email", "unverified_email", "disabled_user", "invite_required", "db_unreachable"]);
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,9 @@ export default async function AuthErrorPage({
       : normalizedError === "credentialssignin"
         ? "Invalid username or password."
       : KNOWN_ERRORS.has(normalizedError)
-        ? authErrorToMessage(normalizedError as "missing_email" | "unverified_email" | "disabled_user" | "invite_required")
+        ? authErrorToMessage(
+            normalizedError as "missing_email" | "unverified_email" | "disabled_user" | "invite_required" | "db_unreachable"
+          )
         : "Sign in was denied. If this is unexpected, contact an admin.";
 
   return (

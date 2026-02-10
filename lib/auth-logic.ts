@@ -1,7 +1,12 @@
 import type { Invite, UserRole, UserStatus } from "@prisma/client";
 import { INITIAL_ADMIN_EMAILS, isCleverEmail, normalizeEmail } from "@/lib/config";
 
-export type AuthDenyReason = "missing_email" | "unverified_email" | "disabled_user" | "invite_required";
+export type AuthDenyReason =
+  | "missing_email"
+  | "unverified_email"
+  | "disabled_user"
+  | "invite_required"
+  | "db_unreachable";
 
 export interface AccessEvaluation {
   allowed: boolean;
@@ -86,6 +91,8 @@ export function authErrorToMessage(reason: AuthDenyReason): string {
       return "Your account is currently disabled. Contact an admin.";
     case "invite_required":
       return "This email is not permitted yet. Request an invite from a Clever admin.";
+    case "db_unreachable":
+      return "The sign-in database is temporarily unavailable. Try again shortly.";
     default:
       return "Sign-in was denied.";
   }

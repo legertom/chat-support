@@ -44,6 +44,9 @@ function toSignInErrorMessage(code: string | null): string {
   if (normalized === "invite_required") {
     return "This email is not allowed yet. Request an invite from an admin.";
   }
+  if (normalized === "db_unreachable") {
+    return "Sign-in database is unavailable right now. Try again in a moment.";
+  }
   if (normalized === "accessdenied") {
     return "Sign in was denied by server policy. Check /api/auth/callback/credentials logs in Vercel for the exact reason.";
   }

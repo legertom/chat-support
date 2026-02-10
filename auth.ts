@@ -14,6 +14,22 @@ function getErrorRedirect(reason: string): string {
   return `/auth/error?error=${encodeURIComponent(reason)}`;
 }
 
+function getErrorContext(error: unknown): { name: string; message: string; code: string | null } {
+  if (error instanceof Error) {
+    const errorWithCode = error as Error & { code?: string };
+    return {
+      name: error.name,
+      message: error.message,
+      code: typeof errorWithCode.code === "string" ? errorWithCode.code : null,
+    };
+  }
+  return {
+    name: "UnknownError",
+    message: String(error),
+    code: null,
+  };
+}
+
 async function findActiveInvite(email: string, now: Date) {
   return prisma.invite.findFirst({
     where: {
@@ -139,14 +155,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const email = normalizeMaybeEmail(user.email);
       const now = new Date();
 
-      const existingUser = email
-        ? await prisma.user.findUnique({
+      let existingUser: { status: "active" | "disabled" } | null = null;
+      if (email) {
+        try {
+          existingUser = await prisma.user.findUnique({
             where: { email },
             select: {
               status: true,
             },
-          })
-        : null;
+          });
+        } catch (error) {
+          const context = getErrorContext(error);
+          console.error("[auth][db] user lookup failed during sign-in", {
+            email,
+            provider: account?.provider ?? "unknown",
+            ...context,
+          });
+          return getErrorRedirect("db_unreachable");
+        }
+      }
 
       if (account?.provider === "credentials") {
         if (!email) {
@@ -161,11 +188,40 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email,
           existingUserStatus: existingUser?.status ?? null,
         });
+
+        try {
+          await provisionUserOnSignIn({
+            email,
+            now,
+            preferredRole: getBasicAuthRole(),
+          });
+        } catch (error) {
+          const context = getErrorContext(error);
+          console.error("[auth][db] credentials provisioning failed", {
+            email,
+            ...context,
+          });
+          return getErrorRedirect("db_unreachable");
+        }
+
         return true;
       }
 
       const emailVerified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified === true);
-      const invite = email ? await findActiveInvite(email, now) : null;
+      let invite = null;
+      if (email) {
+        try {
+          invite = await findActiveInvite(email, now);
+        } catch (error) {
+          const context = getErrorContext(error);
+          console.error("[auth][db] invite lookup failed during sign-in", {
+            email,
+            provider: account?.provider ?? "unknown",
+            ...context,
+          });
+          return getErrorRedirect("db_unreachable");
+        }
+      }
 
       const access = evaluateLoginAccess({
         email,
@@ -179,6 +235,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return getErrorRedirect(access.reason ?? "invite_required");
       }
 
+      if (!email) {
+        return getErrorRedirect("missing_email");
+      }
+
+      try {
+        await provisionUserOnSignIn({
+          email,
+          now,
+        });
+      } catch (error) {
+        const context = getErrorContext(error);
+        console.error("[auth][db] oauth provisioning failed", {
+          email,
+          provider: account?.provider ?? "unknown",
+          ...context,
+        });
+        return getErrorRedirect("db_unreachable");
+      }
+
       return true;
     },
     async session({ session }) {
@@ -187,12 +262,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return session;
       }
 
-      const dbUser = await prisma.user.findUnique({
-        where: { email },
-        include: {
-          wallet: true,
-        },
-      });
+      let dbUser = null;
+      try {
+        dbUser = await prisma.user.findUnique({
+          where: { email },
+          include: {
+            wallet: true,
+          },
+        });
+      } catch (error) {
+        const context = getErrorContext(error);
+        console.error("[auth][db] session user lookup failed", {
+          email,
+          ...context,
+        });
+        return session;
+      }
 
       if (!dbUser) {
         return session;
@@ -203,31 +288,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.status = dbUser.status;
       session.user.balanceCents = dbUser.wallet?.balanceCents ?? 0;
       return session;
-    },
-  },
-  events: {
-    async signIn({ user, account }) {
-      const email = normalizeMaybeEmail(user.email);
-      if (!email) {
-        console.warn("[auth][events] signIn event skipped due to missing normalized email");
-        return;
-      }
-
-      try {
-        await provisionUserOnSignIn({
-          email,
-          now: new Date(),
-          preferredRole: account?.provider === "credentials" ? getBasicAuthRole() : undefined,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("[auth][events] signIn provisioning failed", {
-          email,
-          provider: account?.provider ?? "unknown",
-          message,
-        });
-        throw error;
-      }
     },
   },
   session: {
