@@ -3,10 +3,55 @@
 import { signIn } from "next-auth/react";
 import { FormEvent, useState, useTransition } from "react";
 
+function resolveSignInErrorCode(result: { error?: string | null; url?: string | null } | null): string | null {
+  const direct = result?.error?.trim();
+  if (direct) {
+    return direct;
+  }
+
+  const redirectUrl = result?.url?.trim();
+  if (!redirectUrl) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(redirectUrl, window.location.origin);
+    const queryError = parsed.searchParams.get("error")?.trim();
+    return queryError || null;
+  } catch {
+    return null;
+  }
+}
+
+function toSignInErrorMessage(code: string | null): string {
+  if (!code) {
+    return "Sign in failed. Check credentials and server configuration.";
+  }
+
+  const normalized = code.toLowerCase();
+  if (normalized === "credentialssignin") {
+    return "Credentials sign-in failed. Verify BASIC_AUTH_USERNAME and BASIC_AUTH_PASSWORD in Vercel, then retry.";
+  }
+  if (normalized === "configuration") {
+    return "Authentication configuration is incomplete in this environment.";
+  }
+  if (normalized === "missing_email") {
+    return "The account did not provide an email address.";
+  }
+  if (normalized === "disabled_user") {
+    return "This account is disabled. Contact an admin.";
+  }
+  if (normalized === "invite_required") {
+    return "This email is not allowed yet. Request an invite from an admin.";
+  }
+  return `Sign in failed (${code}). Check /api/auth/callback/credentials logs in Vercel.`;
+}
+
 export function CredentialsSignInForm({ callbackUrl }: { callbackUrl: string }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -15,10 +60,12 @@ export function CredentialsSignInForm({ callbackUrl }: { callbackUrl: string }) 
     const normalizedUsername = username.trim();
     if (!normalizedUsername || !password) {
       setError("Username and password are required.");
+      setErrorCode(null);
       return;
     }
 
     setError(null);
+    setErrorCode(null);
     startTransition(async () => {
       try {
         const result = await signIn("credentials", {
@@ -29,13 +76,16 @@ export function CredentialsSignInForm({ callbackUrl }: { callbackUrl: string }) 
         });
 
         if (!result || result.error) {
-          setError("Invalid username or password.");
+          const code = resolveSignInErrorCode(result);
+          setError(toSignInErrorMessage(code));
+          setErrorCode(code);
           return;
         }
 
         window.location.assign(result.url ?? callbackUrl);
       } catch {
         setError("Unable to sign in right now.");
+        setErrorCode(null);
       }
     });
   }
@@ -66,10 +116,14 @@ export function CredentialsSignInForm({ callbackUrl }: { callbackUrl: string }) 
         />
       </label>
       {error ? <p className="auth-inline-error">{error}</p> : null}
+      {errorCode ? (
+        <p className="auth-muted">
+          Error code: <code>{errorCode}</code>
+        </p>
+      ) : null}
       <button type="submit" className="primary-button" disabled={isPending}>
         {isPending ? "Signing in..." : "Sign in"}
       </button>
     </form>
   );
 }
-
