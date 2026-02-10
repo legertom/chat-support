@@ -110,10 +110,10 @@ const rawPostgresPrismaUrl = process.env.POSTGRES_PRISMA_URL;
 const rawPostgresUrl = process.env.POSTGRES_URL;
 
 const resolvedDatabaseUrl = selectDatabaseUrl([
-  // Prefer URLs explicitly intended for Prisma/serverless runtime first.
+  // APP_DATABASE_URL is user-managed and can be rotated quickly when DB credentials change.
+  { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
   { name: "POSTGRES_PRISMA_URL", value: rawPostgresPrismaUrl },
   { name: "DATABASE_URL", value: rawDatabaseUrl },
-  { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
   { name: "POSTGRES_URL", value: rawPostgresUrl },
   { name: "DATABASE_URL_UNPOOLED", value: rawDatabaseUrlUnpooled },
   { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
