@@ -29,14 +29,33 @@ function getDatabaseHost(value: string): string {
   }
 }
 
-const resolvedDatabaseUrl = firstNonEmptyEnvValue([
-  { name: "APP_DATABASE_URL", value: process.env.APP_DATABASE_URL },
-  { name: "DATABASE_URL_UNPOOLED", value: process.env.DATABASE_URL_UNPOOLED },
-  { name: "POSTGRES_URL_NON_POOLING", value: process.env.POSTGRES_URL_NON_POOLING },
-  { name: "DATABASE_URL", value: process.env.DATABASE_URL },
-  { name: "POSTGRES_PRISMA_URL", value: process.env.POSTGRES_PRISMA_URL },
-  { name: "POSTGRES_URL", value: process.env.POSTGRES_URL },
+const rawAppDatabaseUrl = process.env.APP_DATABASE_URL;
+const rawDatabaseUrlUnpooled = process.env.DATABASE_URL_UNPOOLED;
+const rawPostgresUrlNonPooling = process.env.POSTGRES_URL_NON_POOLING;
+const rawDatabaseUrl = process.env.DATABASE_URL;
+const rawPostgresPrismaUrl = process.env.POSTGRES_PRISMA_URL;
+const rawPostgresUrl = process.env.POSTGRES_URL;
+
+const appDatabaseUrl = firstNonEmptyEnvValue([{ name: "APP_DATABASE_URL", value: rawAppDatabaseUrl }]);
+const unpooledCandidate = firstNonEmptyEnvValue([
+  { name: "DATABASE_URL_UNPOOLED", value: rawDatabaseUrlUnpooled },
+  { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
 ]);
+
+const resolvedDatabaseUrl =
+  appDatabaseUrl && getDatabaseHost(appDatabaseUrl.value).includes("-pooler.") && unpooledCandidate
+    ? {
+        source: `${unpooledCandidate.source} (auto-selected over APP_DATABASE_URL pooler host)`,
+        value: unpooledCandidate.value,
+      }
+    : firstNonEmptyEnvValue([
+        { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
+        { name: "DATABASE_URL_UNPOOLED", value: rawDatabaseUrlUnpooled },
+        { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
+        { name: "DATABASE_URL", value: rawDatabaseUrl },
+        { name: "POSTGRES_PRISMA_URL", value: rawPostgresPrismaUrl },
+        { name: "POSTGRES_URL", value: rawPostgresUrl },
+      ]);
 
 if (resolvedDatabaseUrl) {
   process.env.DATABASE_URL = resolvedDatabaseUrl.value;
