@@ -127,6 +127,8 @@ if (resolvedDatabaseUrl) {
   process.env.DATABASE_URL = normalizedDatabaseUrl.value;
   selectedDatabaseUrl = normalizedDatabaseUrl.value;
   selectedDatabaseHost = getDatabaseHost(normalizedDatabaseUrl.value);
+  process.env.PRISMA_DATABASE_SOURCE = resolvedDatabaseUrl.source;
+  process.env.PRISMA_DATABASE_HOST = selectedDatabaseHost;
   console.info("[db] prisma datasource url selected", {
     source: resolvedDatabaseUrl.source,
     host: selectedDatabaseHost,
