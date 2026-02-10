@@ -67,6 +67,49 @@ function getDatabaseHost(value: string): string {
   }
 }
 
+function getDatabaseCredentialMetadata(value: string): {
+  usernamePresent: boolean;
+  passwordPresent: boolean;
+  databasePresent: boolean;
+} {
+  try {
+    const parsed = new URL(value);
+    return {
+      usernamePresent: parsed.username.length > 0,
+      passwordPresent: parsed.password.length > 0,
+      databasePresent: parsed.pathname.replace(/^\//, "").length > 0,
+    };
+  } catch {
+    return {
+      usernamePresent: false,
+      passwordPresent: false,
+      databasePresent: false,
+    };
+  }
+}
+
+function discoverPostgresUrlEnvCandidates(): Array<{ source: string; value: string }> {
+  const discovered: Array<{ source: string; value: string }> = [];
+
+  for (const [name, rawValue] of Object.entries(process.env)) {
+    if (typeof rawValue !== "string") {
+      continue;
+    }
+
+    const value = rawValue.trim();
+    if (!(value.startsWith("postgres://") || value.startsWith("postgresql://"))) {
+      continue;
+    }
+
+    discovered.push({
+      source: `ENV:${name}`,
+      value,
+    });
+  }
+
+  return discovered;
+}
+
 function buildUrlFromPgComponents(): string | null {
   const host = process.env.PGHOST?.trim() || process.env.POSTGRES_HOST?.trim();
   const user = process.env.PGUSER?.trim() || process.env.POSTGRES_USER?.trim();
@@ -124,6 +167,7 @@ async function scanCandidateUrls() {
     { source: "POSTGRES_URL_NO_SSL", value: process.env.POSTGRES_URL_NO_SSL },
     { source: "APP_DATABASE_URL_PLUS_PGPASSWORD", value: buildAppUrlWithPassword() },
     { source: "COMPOSED_PG_COMPONENTS_URL", value: buildUrlFromPgComponents() },
+    ...discoverPostgresUrlEnvCandidates(),
   ]
     .map((candidate) => ({ ...candidate, value: candidate.value?.trim() ?? "" }))
     .filter((candidate) => candidate.value.length > 0);
@@ -132,6 +176,9 @@ async function scanCandidateUrls() {
   const results: Array<{
     source: string;
     host: string;
+    usernamePresent: boolean;
+    passwordPresent: boolean;
+    databasePresent: boolean;
     ok: boolean;
     error?: { name: string; message: string; code: string | null };
   }> = [];
@@ -142,18 +189,22 @@ async function scanCandidateUrls() {
     }
     seen.add(candidate.value);
 
+    const metadata = getDatabaseCredentialMetadata(candidate.value);
+
     try {
       const sql = neon(candidate.value);
       await sql`SELECT 1`;
       results.push({
         source: candidate.source,
         host: getDatabaseHost(candidate.value),
+        ...metadata,
         ok: true,
       });
     } catch (error) {
       results.push({
         source: candidate.source,
         host: getDatabaseHost(candidate.value),
+        ...metadata,
         ok: false,
         error: toErrorContext(error),
       });

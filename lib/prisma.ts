@@ -39,6 +39,14 @@ function getDatabaseHostname(value: string): string {
   }
 }
 
+function hasDatabasePassword(value: string): boolean {
+  try {
+    return new URL(value).password.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function isNeonHostname(hostname: string): boolean {
   return hostname.endsWith(".aws.neon.tech");
 }
@@ -47,9 +55,61 @@ function isPoolerHostname(hostname: string): boolean {
   return hostname.includes("-pooler.");
 }
 
+function buildAppUrlWithFallbackCredentials(value: string | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const appUrl = value.trim();
+  if (!appUrl) {
+    return undefined;
+  }
+
+  const fallbackUser = process.env.PGUSER?.trim() || process.env.POSTGRES_USER?.trim();
+  const fallbackPassword = process.env.PGPASSWORD?.trim() || process.env.POSTGRES_PASSWORD?.trim();
+
+  if (!fallbackUser && !fallbackPassword) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(appUrl);
+    let changed = false;
+
+    if (!parsed.username && fallbackUser) {
+      parsed.username = fallbackUser;
+      changed = true;
+    }
+
+    if (!parsed.password && fallbackPassword) {
+      parsed.password = fallbackPassword;
+      changed = true;
+    }
+
+    return changed ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: string; value: string } | null {
   const allNonEmpty = nonEmptyEnvValues(candidates);
-  const first = allNonEmpty[0] ?? null;
+  const candidatesWithPassword = allNonEmpty.filter((candidate) => hasDatabasePassword(candidate.value));
+  const passwordlessSources =
+    candidatesWithPassword.length > 0
+      ? allNonEmpty
+          .filter((candidate) => !hasDatabasePassword(candidate.value))
+          .map((candidate) => candidate.source)
+      : [];
+
+  if (passwordlessSources.length > 0) {
+    console.warn("[db] ignoring passwordless datasource candidates", {
+      ignoredSources: passwordlessSources,
+    });
+  }
+
+  const prioritizedCandidates = candidatesWithPassword.length > 0 ? candidatesWithPassword : allNonEmpty;
+  const first = prioritizedCandidates[0] ?? null;
   if (!first) {
     return null;
   }
@@ -63,7 +123,7 @@ function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: s
     return first;
   }
 
-  const poolerCandidate = allNonEmpty.find((candidate) => {
+  const poolerCandidate = prioritizedCandidates.find((candidate) => {
     const hostname = getDatabaseHostname(candidate.value);
     return isNeonHostname(hostname) && isPoolerHostname(hostname);
   });
@@ -112,10 +172,12 @@ const rawPostgresUrlNonPooling = process.env.POSTGRES_URL_NON_POOLING;
 const rawDatabaseUrl = process.env.DATABASE_URL;
 const rawPostgresPrismaUrl = process.env.POSTGRES_PRISMA_URL;
 const rawPostgresUrl = process.env.POSTGRES_URL;
+const rawAppDatabaseUrlWithFallbackCredentials = buildAppUrlWithFallbackCredentials(rawAppDatabaseUrl);
 
 const resolvedDatabaseUrl = selectDatabaseUrl([
   // APP_DATABASE_URL is user-managed and can be rotated quickly when DB credentials change.
   { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
+  { name: "APP_DATABASE_URL_PLUS_FALLBACK_CREDS", value: rawAppDatabaseUrlWithFallbackCredentials },
   { name: "POSTGRES_PRISMA_URL", value: rawPostgresPrismaUrl },
   { name: "DATABASE_URL", value: rawDatabaseUrl },
   { name: "POSTGRES_URL", value: rawPostgresUrl },
