@@ -2,23 +2,22 @@ import { PrismaClient } from "@prisma/client";
 import { assertUserApiKeyEncryptionConfigured } from "@/lib/user-api-keys";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+type EnvCandidate = { name: string; value: string | undefined };
 
-function firstNonEmptyEnvValue(
-  candidates: ReadonlyArray<{
-    name: string;
-    value: string | undefined;
-  }>
-): { source: string; value: string } | null {
+function nonEmptyEnvValues(candidates: ReadonlyArray<EnvCandidate>): Array<{ source: string; value: string }> {
+  const resolved: Array<{ source: string; value: string }> = [];
+
   for (const candidate of candidates) {
     if (typeof candidate.value !== "string") {
       continue;
     }
     const trimmed = candidate.value.trim();
     if (trimmed.length > 0) {
-      return { source: candidate.name, value: trimmed };
+      resolved.push({ source: candidate.name, value: trimmed });
     }
   }
-  return null;
+
+  return resolved;
 }
 
 function getDatabaseHost(value: string): string {
@@ -29,12 +28,55 @@ function getDatabaseHost(value: string): string {
   }
 }
 
+function getDatabaseHostname(value: string): string {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "invalid-url";
+  }
+}
+
+function isNeonHostname(hostname: string): boolean {
+  return hostname.endsWith(".aws.neon.tech");
+}
+
+function isPoolerHostname(hostname: string): boolean {
+  return hostname.includes("-pooler.");
+}
+
+function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: string; value: string } | null {
+  const allNonEmpty = nonEmptyEnvValues(candidates);
+  const first = allNonEmpty[0] ?? null;
+  if (!first) {
+    return null;
+  }
+
+  const firstHostname = getDatabaseHostname(first.value);
+  if (!isNeonHostname(firstHostname) || isPoolerHostname(firstHostname)) {
+    return first;
+  }
+
+  const poolerCandidate = allNonEmpty.find((candidate) => {
+    const hostname = getDatabaseHostname(candidate.value);
+    return isNeonHostname(hostname) && isPoolerHostname(hostname);
+  });
+
+  if (poolerCandidate) {
+    return {
+      source: `${poolerCandidate.source} (auto-selected Neon pooler host over ${first.source})`,
+      value: poolerCandidate.value,
+    };
+  }
+
+  return first;
+}
+
 function normalizeDatabaseUrl(value: string): { value: string; adjustments: string[] } {
   const adjustments: string[] = [];
 
   try {
     const parsed = new URL(value);
-    const isNeonHost = parsed.hostname.endsWith(".aws.neon.tech");
+    const isNeonHost = isNeonHostname(parsed.hostname);
 
     if (isNeonHost) {
       if (!parsed.searchParams.get("sslmode")) {
@@ -64,26 +106,15 @@ const rawDatabaseUrl = process.env.DATABASE_URL;
 const rawPostgresPrismaUrl = process.env.POSTGRES_PRISMA_URL;
 const rawPostgresUrl = process.env.POSTGRES_URL;
 
-const appDatabaseUrl = firstNonEmptyEnvValue([{ name: "APP_DATABASE_URL", value: rawAppDatabaseUrl }]);
-const unpooledCandidate = firstNonEmptyEnvValue([
+const resolvedDatabaseUrl = selectDatabaseUrl([
+  // Prefer URLs explicitly intended for Prisma/serverless runtime first.
+  { name: "POSTGRES_PRISMA_URL", value: rawPostgresPrismaUrl },
+  { name: "DATABASE_URL", value: rawDatabaseUrl },
+  { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
+  { name: "POSTGRES_URL", value: rawPostgresUrl },
   { name: "DATABASE_URL_UNPOOLED", value: rawDatabaseUrlUnpooled },
   { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
 ]);
-
-const resolvedDatabaseUrl =
-  appDatabaseUrl && getDatabaseHost(appDatabaseUrl.value).includes("-pooler.") && unpooledCandidate
-    ? {
-        source: `${unpooledCandidate.source} (auto-selected over APP_DATABASE_URL pooler host)`,
-        value: unpooledCandidate.value,
-      }
-    : firstNonEmptyEnvValue([
-        { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
-        { name: "DATABASE_URL_UNPOOLED", value: rawDatabaseUrlUnpooled },
-        { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
-        { name: "DATABASE_URL", value: rawDatabaseUrl },
-        { name: "POSTGRES_PRISMA_URL", value: rawPostgresPrismaUrl },
-        { name: "POSTGRES_URL", value: rawPostgresUrl },
-      ]);
 
 if (resolvedDatabaseUrl) {
   const normalizedDatabaseUrl = normalizeDatabaseUrl(resolvedDatabaseUrl.value);
