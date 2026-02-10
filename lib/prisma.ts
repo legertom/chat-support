@@ -29,6 +29,34 @@ function getDatabaseHost(value: string): string {
   }
 }
 
+function normalizeDatabaseUrl(value: string): { value: string; adjustments: string[] } {
+  const adjustments: string[] = [];
+
+  try {
+    const parsed = new URL(value);
+    const isNeonHost = parsed.hostname.endsWith(".aws.neon.tech");
+
+    if (isNeonHost) {
+      if (!parsed.searchParams.get("sslmode")) {
+        parsed.searchParams.set("sslmode", "require");
+        adjustments.push("sslmode=require");
+      }
+
+      if (!parsed.searchParams.get("connect_timeout")) {
+        parsed.searchParams.set("connect_timeout", "15");
+        adjustments.push("connect_timeout=15");
+      }
+    }
+
+    return {
+      value: parsed.toString(),
+      adjustments,
+    };
+  } catch {
+    return { value, adjustments };
+  }
+}
+
 const rawAppDatabaseUrl = process.env.APP_DATABASE_URL;
 const rawDatabaseUrlUnpooled = process.env.DATABASE_URL_UNPOOLED;
 const rawPostgresUrlNonPooling = process.env.POSTGRES_URL_NON_POOLING;
@@ -58,10 +86,12 @@ const resolvedDatabaseUrl =
       ]);
 
 if (resolvedDatabaseUrl) {
-  process.env.DATABASE_URL = resolvedDatabaseUrl.value;
+  const normalizedDatabaseUrl = normalizeDatabaseUrl(resolvedDatabaseUrl.value);
+  process.env.DATABASE_URL = normalizedDatabaseUrl.value;
   console.info("[db] prisma datasource url selected", {
     source: resolvedDatabaseUrl.source,
-    host: getDatabaseHost(resolvedDatabaseUrl.value),
+    host: getDatabaseHost(normalizedDatabaseUrl.value),
+    adjustments: normalizedDatabaseUrl.adjustments,
   });
 } else {
   console.error("[db] no database url configured for prisma datasource");
