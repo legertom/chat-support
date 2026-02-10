@@ -1,4 +1,7 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaNeon } from "@prisma/adapter-neon";
+import { neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
 import { assertUserApiKeyEncryptionConfigured } from "@/lib/user-api-keys";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
@@ -116,12 +119,17 @@ const resolvedDatabaseUrl = selectDatabaseUrl([
   { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
 ]);
 
+let selectedDatabaseUrl: string | null = null;
+let selectedDatabaseHost = "invalid-url";
+
 if (resolvedDatabaseUrl) {
   const normalizedDatabaseUrl = normalizeDatabaseUrl(resolvedDatabaseUrl.value);
   process.env.DATABASE_URL = normalizedDatabaseUrl.value;
+  selectedDatabaseUrl = normalizedDatabaseUrl.value;
+  selectedDatabaseHost = getDatabaseHost(normalizedDatabaseUrl.value);
   console.info("[db] prisma datasource url selected", {
     source: resolvedDatabaseUrl.source,
-    host: getDatabaseHost(normalizedDatabaseUrl.value),
+    host: selectedDatabaseHost,
     adjustments: normalizedDatabaseUrl.adjustments,
   });
 } else {
@@ -130,11 +138,31 @@ if (resolvedDatabaseUrl) {
 
 assertUserApiKeyEncryptionConfigured();
 
+const prismaLogLevel = (process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"]) as Array<
+  "query" | "info" | "warn" | "error"
+>;
+let prismaClientOptions: ConstructorParameters<typeof PrismaClient>[0] = {
+  log: prismaLogLevel,
+};
+
+if (selectedDatabaseUrl && isNeonHostname(getDatabaseHostname(selectedDatabaseUrl))) {
+  if (typeof WebSocket === "undefined") {
+    neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
+  }
+
+  prismaClientOptions = {
+    ...prismaClientOptions,
+    adapter: new PrismaNeon({ connectionString: selectedDatabaseUrl }),
+  };
+
+  console.info("[db] prisma neon adapter enabled", {
+    host: selectedDatabaseHost,
+  });
+}
+
 export const prisma =
   globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-  });
+  new PrismaClient(prismaClientOptions);
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;

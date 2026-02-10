@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",
+    "@neondatabase/serverless": "^1.0.2",
+    "@prisma/adapter-neon": "^7.3.0",
     "@prisma/client": "^6.4.1",
     "next": "^15.2.0",
     "next-auth": "^5.0.0-beta.25",
@@ -25,12 +27,14 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "ws": "^8.19.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.5",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "@types/ws": "^8.18.1",
     "prisma": "^6.4.1",
     "typescript": "^5.8.2",
     "vitest": "^3.0.7"
