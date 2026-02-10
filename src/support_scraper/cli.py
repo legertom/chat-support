@@ -4,9 +4,10 @@ import os
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from .chunker import chunk_article
-from .config import get_path, load_config, validate_config
+from .config import get_path, get_source_hosts, load_config, validate_config
 from .discovery import discover_urls, write_urls
 from .logger import setup_logger
 from .scraper import scrape_urls
@@ -22,6 +23,7 @@ def _apply_overrides(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     save_screenshots = getattr(args, "save_screenshots", False)
     max_urls = getattr(args, "max_urls", None)
     urls_path = getattr(args, "urls", None)
+    sources = getattr(args, "sources", None)
 
     if concurrency is not None:
         config["concurrency"] = concurrency
@@ -44,12 +46,29 @@ def _apply_overrides(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         config["max_urls"] = max_urls
     if urls_path:
         config["paths"]["urls_path"] = urls_path
+    if sources:
+        selected_sources = [item.strip() for item in sources.split(",") if item.strip()]
+        if not selected_sources:
+            raise ValueError("At least one source must be provided with --sources")
+        available_sources = set(config.get("sources", {}).keys())
+        unknown = sorted(source for source in selected_sources if source not in available_sources)
+        if unknown:
+            raise ValueError(f"Unknown source(s): {', '.join(unknown)}")
+        for source_name in config.get("sources", {}):
+            config["sources"][source_name]["enabled"] = source_name in selected_sources
     return validate_config(config)
 
 
 def _load_urls(path: str) -> List[str]:
     data = read_json(path)
     return data.get("urls", [])
+
+
+def _filter_urls_for_enabled_sources(urls: List[str], config: Dict[str, Any]) -> List[str]:
+    enabled_hosts = get_source_hosts(config, enabled_only=True)
+    if not enabled_hosts:
+        return []
+    return [url for url in urls if urlparse(url).netloc.lower() in enabled_hosts]
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
@@ -66,7 +85,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
 def cmd_scrape(args: argparse.Namespace) -> int:
     config = _apply_overrides(load_config(args.config), args)
     logger = setup_logger(args.verbose)
-    urls = _load_urls(get_path(config, "urls_path"))
+    urls = _filter_urls_for_enabled_sources(_load_urls(get_path(config, "urls_path")), config)
     if config.get("max_urls"):
         urls = urls[: config["max_urls"]]
     started_at = datetime.now(timezone.utc)
@@ -180,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--resume", action="store_true")
         p.add_argument("--max-urls", type=int)
         p.add_argument("--urls", type=str, help="Path to urls.json")
+        p.add_argument("--sources", type=str, help="Comma-separated source keys (e.g. support,dev)")
 
     discover = subparsers.add_parser("discover", help="Discover article URLs")
     add_common_flags(discover)

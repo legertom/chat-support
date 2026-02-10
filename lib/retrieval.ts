@@ -6,6 +6,8 @@ export interface ChunkRecord {
   doc_id: string;
   url: string;
   title: string;
+  source?: string;
+  source_host?: string;
   section?: string | null;
   heading_path?: string[];
   text: string;
@@ -15,6 +17,8 @@ export interface ChunkRecord {
 }
 
 interface IndexedChunk extends ChunkRecord {
+  source: string;
+  source_host?: string;
   cleanedText: string;
   termFreq: Map<string, number>;
   docLength: number;
@@ -30,6 +34,15 @@ interface ChunkIndex {
   articleCount: number;
   chunkCount: number;
   chunksPath: string;
+  sourceDocCounts: Record<string, number>;
+  sourceChunkCounts: Record<string, number>;
+}
+
+export interface ChunkIndexRuntimeDiagnostics {
+  isWarm: boolean;
+  buildCount: number;
+  lastBuildMs: number | null;
+  builtAt: string | null;
 }
 
 export interface RetrievalResult {
@@ -37,6 +50,11 @@ export interface RetrievalResult {
   score: number;
   matchedTerms: string[];
   snippet: string;
+  multiplierApplied: number;
+}
+
+export interface RetrievalQueryOptions {
+  sources?: string[];
 }
 
 const STOPWORDS = new Set([
@@ -79,6 +97,9 @@ const BM25_K1 = 1.2;
 const BM25_B = 0.75;
 
 let indexPromise: Promise<ChunkIndex> | null = null;
+let indexBuildCount = 0;
+let lastIndexBuildMs: number | null = null;
+let lastIndexBuiltAt: string | null = null;
 
 export function getChunksPath(): string {
   if (process.env.CHUNKS_PATH) {
@@ -89,25 +110,58 @@ export function getChunksPath(): string {
 
 export async function getChunkIndex(): Promise<ChunkIndex> {
   if (!indexPromise) {
-    indexPromise = buildChunkIndex();
+    const buildStartedAt = performance.now();
+    indexPromise = buildChunkIndex()
+      .then((index) => {
+        indexBuildCount += 1;
+        lastIndexBuildMs = toMilliseconds(buildStartedAt, performance.now());
+        lastIndexBuiltAt = new Date().toISOString();
+        return index;
+      })
+      .catch((error) => {
+        indexPromise = null;
+        throw error;
+      });
   }
   return indexPromise;
+}
+
+export function isChunkIndexWarm(): boolean {
+  return indexPromise !== null;
+}
+
+export function getChunkIndexRuntimeDiagnostics(): ChunkIndexRuntimeDiagnostics {
+  return {
+    isWarm: indexPromise !== null,
+    buildCount: indexBuildCount,
+    lastBuildMs: lastIndexBuildMs,
+    builtAt: lastIndexBuiltAt,
+  };
 }
 
 export async function getChunkStats(): Promise<{
   articleCount: number;
   chunkCount: number;
   chunksPath: string;
+  sourceDocCounts: Record<string, number>;
+  sourceChunkCounts: Record<string, number>;
 }> {
   const index = await getChunkIndex();
   return {
     articleCount: index.articleCount,
     chunkCount: index.chunkCount,
     chunksPath: index.chunksPath,
+    sourceDocCounts: index.sourceDocCounts,
+    sourceChunkCounts: index.sourceChunkCounts,
   };
 }
 
-export async function retrieveTopChunks(query: string, limit = 6): Promise<RetrievalResult[]> {
+export async function retrieveTopChunks(
+  query: string,
+  limit = 6,
+  scoreMultipliers?: Map<string, number> | Record<string, number>,
+  options?: RetrievalQueryOptions
+): Promise<RetrievalResult[]> {
   const trimmed = query.trim();
   if (!trimmed) {
     return [];
@@ -116,8 +170,13 @@ export async function retrieveTopChunks(query: string, limit = 6): Promise<Retri
   const index = await getChunkIndex();
   const queryTerms = dedupe(tokenize(trimmed));
   const queryLower = trimmed.toLowerCase();
+  const normalizedSources = normalizeRequestedSources(options?.sources);
+  const sourceFilter = options?.sources ? new Set(normalizedSources) : null;
 
   if (!queryTerms.length) {
+    return [];
+  }
+  if (sourceFilter && sourceFilter.size === 0) {
     return [];
   }
 
@@ -125,6 +184,9 @@ export async function retrieveTopChunks(query: string, limit = 6): Promise<Retri
   const corpusSize = index.chunkCount;
 
   for (const chunk of index.chunks) {
+    if (sourceFilter && !sourceFilter.has(chunk.source)) {
+      continue;
+    }
     let score = 0;
     const matchedTerms: string[] = [];
 
@@ -158,11 +220,15 @@ export async function retrieveTopChunks(query: string, limit = 6): Promise<Retri
       score += 1.2;
     }
 
+    const multiplier = getScoreMultiplier(chunk.chunk_id, scoreMultipliers);
+    const adjustedScore = score * multiplier;
+
     scored.push({
       chunk,
-      score,
+      score: adjustedScore,
       matchedTerms,
       snippet: buildSnippet(chunk.cleanedText, queryTerms),
+      multiplierApplied: multiplier,
     });
   }
 
@@ -198,6 +264,29 @@ export async function retrieveTopChunks(query: string, limit = 6): Promise<Retri
   return merged;
 }
 
+function getScoreMultiplier(
+  chunkId: string,
+  scoreMultipliers?: Map<string, number> | Record<string, number>
+): number {
+  if (!scoreMultipliers) {
+    return 1;
+  }
+
+  if (scoreMultipliers instanceof Map) {
+    const candidate = scoreMultipliers.get(chunkId);
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return candidate;
+    }
+    return 1;
+  }
+
+  const candidate = scoreMultipliers[chunkId];
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    return candidate;
+  }
+  return 1;
+}
+
 async function buildChunkIndex(): Promise<ChunkIndex> {
   const chunksPath = getChunksPath();
   const raw = await fs.readFile(chunksPath, "utf8");
@@ -206,6 +295,9 @@ async function buildChunkIndex(): Promise<ChunkIndex> {
   const chunks: IndexedChunk[] = [];
   const docFreq = new Map<string, number>();
   const articleIds = new Set<string>();
+  const seenDocIds = new Set<string>();
+  const sourceDocCounts: Record<string, number> = {};
+  const sourceChunkCounts: Record<string, number> = {};
   let totalDocLength = 0;
 
   for (const line of lines) {
@@ -220,6 +312,8 @@ async function buildChunkIndex(): Promise<ChunkIndex> {
       continue;
     }
 
+    const source = resolveChunkSource(parsed);
+    const sourceHost = resolveSourceHost(parsed);
     const cleanedText = cleanChunkText(parsed.text);
     const searchableTitle = parsed.title.toLowerCase();
     const searchableText = cleanedText.toLowerCase();
@@ -235,9 +329,16 @@ async function buildChunkIndex(): Promise<ChunkIndex> {
     const docLength = Math.max(1, terms.length);
     totalDocLength += docLength;
     articleIds.add(parsed.doc_id);
+    if (!seenDocIds.has(parsed.doc_id)) {
+      seenDocIds.add(parsed.doc_id);
+      sourceDocCounts[source] = (sourceDocCounts[source] ?? 0) + 1;
+    }
+    sourceChunkCounts[source] = (sourceChunkCounts[source] ?? 0) + 1;
 
     chunks.push({
       ...parsed,
+      source,
+      source_host: sourceHost,
       cleanedText,
       searchableTitle,
       searchableText,
@@ -257,6 +358,8 @@ async function buildChunkIndex(): Promise<ChunkIndex> {
     articleCount: articleIds.size,
     chunkCount,
     chunksPath,
+    sourceDocCounts,
+    sourceChunkCounts,
   };
 }
 
@@ -294,6 +397,63 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function normalizeRequestedSources(values: string[] | undefined): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return dedupe(values.map((value) => normalizeSourceKey(value)).filter((value) => value.length > 0));
+}
+
+function resolveChunkSource(chunk: ChunkRecord): string {
+  if (typeof chunk.source === "string" && chunk.source.trim().length > 0) {
+    return normalizeSourceKey(chunk.source);
+  }
+  return inferSourceFromUrl(chunk.url);
+}
+
+function resolveSourceHost(chunk: ChunkRecord): string | undefined {
+  if (typeof chunk.source_host === "string" && chunk.source_host.trim().length > 0) {
+    return chunk.source_host.trim().toLowerCase();
+  }
+  try {
+    return new URL(chunk.url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeSourceKey(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized === "support" || normalized === "support.clever.com" || normalized === "support-clever") {
+    return "support";
+  }
+  if (normalized === "dev" || normalized === "dev.clever.com" || normalized === "dev-clever") {
+    return "dev";
+  }
+  return normalized;
+}
+
+function inferSourceFromUrl(url: string): string {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname === "support.clever.com") {
+      return "support";
+    }
+    if (hostname === "dev.clever.com") {
+      return "dev";
+    }
+    if (hostname.endsWith(".clever.com")) {
+      return normalizeSourceKey(hostname.split(".")[0]);
+    }
+    return normalizeSourceKey(hostname);
+  } catch {
+    return "unknown";
+  }
+}
+
 function buildSnippet(text: string, queryTerms: string[]): string {
   const lower = text.toLowerCase();
   let firstHit = -1;
@@ -316,6 +476,10 @@ function buildSnippet(text: string, queryTerms: string[]): string {
   const prefix = start > 0 ? "..." : "";
   const suffix = end < text.length ? "..." : "";
   return `${prefix}${compactWhitespace(text.slice(start, end))}${suffix}`;
+}
+
+function toMilliseconds(start: number, end: number): number {
+  return Number((end - start).toFixed(1));
 }
 
 function compactWhitespace(text: string): string {

@@ -39,3 +39,6 @@ def test_extract_article_basic_fields():
     assert "reset your password safely" in article["body_text"].lower()
     assert article["attachments"][0]["url"] == "https://support.clever.com/download/user-guide.pdf"
     assert article["related_links"][0]["url"] == "https://support.clever.com/s/article/related-one"
+    assert article["source"] == "support"
+    assert article["source_host"] == "support.clever.com"
+    assert article["doc_id"].startswith("support-clever:")

@@ -1,400 +1,609 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_MODEL_ID, MODEL_SPECS, findModelSpec, type ModelSpec } from "@/lib/models";
-import { estimateTokens, usd } from "@/lib/tokens";
-import type { Citation, CostMetrics, UsageMetrics } from "@/lib/types";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { AssistantMessageText } from "@/components/assistant-message-text";
+import { DEFAULT_MODEL_ID, MODEL_SPECS, type ModelSpec } from "@/lib/models";
 
-type UiRole = "user" | "assistant";
-
-interface UiMessage {
-  id: string;
-  role: UiRole;
-  content: string;
-  createdAt: string;
-  estimatedTokens?: number;
-  usage?: UsageMetrics;
-  cost?: CostMetrics;
-  modelId?: string;
-  provider?: string;
-  citations?: Citation[];
+interface MeResponse {
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    image: string | null;
+    role: "admin" | "member";
+    status: "active" | "disabled";
+    createdAt: string;
+    lastActiveAt: string | null;
+  };
+  wallet: {
+    balanceCents: number;
+    lifetimeGrantedCents: number;
+    lifetimeSpentCents: number;
+    debitedCents: number;
+  };
 }
 
-interface UiThread {
+interface ThreadListResponse {
+  items: ThreadListItem[];
+  nextCursor: string | null;
+}
+
+interface ThreadListItem {
   id: string;
   title: string;
+  visibility: "org" | "private";
   createdAt: string;
   updatedAt: string;
-  messages: UiMessage[];
+  createdBy: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
+  messageCount: number;
+  lastMessage: {
+    id: string;
+    role: "user" | "assistant" | "system";
+    contentPreview: string;
+    createdAt: string;
+  } | null;
 }
 
-interface ThreadStore {
-  activeThreadId: string;
-  threads: UiThread[];
+interface ThreadDetailResponse {
+  thread: {
+    id: string;
+    title: string;
+    visibility: "org" | "private";
+    createdAt: string;
+    updatedAt: string;
+    createdBy: {
+      id: string;
+      email: string;
+      name: string | null;
+    };
+    feedback: {
+      averageRating: number | null;
+      count: number;
+      mine: {
+        rating: number;
+        comment: string | null;
+      } | null;
+    };
+  };
+  messages: ThreadMessage[];
 }
 
-interface DatasetStats {
-  articleCount: number;
-  chunkCount: number;
-  chunksPath: string;
+interface ThreadMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  modelId: string | null;
+  provider: string | null;
+  usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  } | null;
+  costCents: number;
+  createdAt: string;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  } | null;
+  citations: Citation[];
+  feedback: {
+    averageRating: number | null;
+    count: number;
+    mine: {
+      rating: number;
+      comment: string | null;
+    } | null;
+  };
 }
 
-interface StatsResponse {
-  dataset: DatasetStats;
-  models: ModelSpec[];
-  generatedAt: string;
+interface Citation {
+  id: string;
+  chunkId: string;
+  docId: string | null;
+  url: string;
+  title: string;
+  section: string | null;
+  score: number;
+  snippet: string;
 }
 
 interface ChatResponse {
   assistant: {
-    role: "assistant";
-    content: string;
-    usage: UsageMetrics;
-    cost: CostMetrics;
-    modelId: string;
-    provider: string;
-    citations: Citation[];
+    id: string;
+  };
+  budget: {
+    remainingBalanceCents: number;
+    chargedCents: number;
+    releasedCents: number;
+    reservedCents: number;
   };
 }
 
-const SETTINGS_STORAGE_KEY = "clever-rag-lab-settings-v1";
-const THREADS_STORAGE_KEY = "clever-rag-lab-threads-v1";
-const DEFAULT_THREAD_TITLE = "New thread";
-const MAX_THREAD_TITLE_LENGTH = 72;
-const ALLOW_CLIENT_API_KEY_OVERRIDE = process.env.NEXT_PUBLIC_ALLOW_CLIENT_API_KEY_OVERRIDE === "true";
+type ApiKeyProvider = "openai" | "anthropic" | "gemini";
+
+interface UserApiKeyItem {
+  id: string;
+  provider: ApiKeyProvider;
+  label: string;
+  keyPreview: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UserApiKeysResponse {
+  items: UserApiKeyItem[];
+}
+
+interface StatsResponse {
+  dataset: {
+    articleCount: number;
+    chunkCount: number;
+    chunksPath: string;
+    sourceDocCounts?: Record<string, number>;
+    sourceChunkCounts?: Record<string, number>;
+  };
+  models: ModelSpec[];
+}
+
+const MAX_PREVIEW_LENGTH = 150;
+type RetrievalSource = "support" | "dev";
+const SOURCE_OPTIONS: Array<{ id: RetrievalSource; label: string }> = [
+  { id: "support", label: "Support Docs" },
+  { id: "dev", label: "Dev Docs" },
+];
 
 export function RagLab() {
-  const [threads, setThreads] = useState<UiThread[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState("");
-  const [threadsHydrated, setThreadsHydrated] = useState(false);
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [scope, setScope] = useState<"all" | "mine">("all");
+  const [threads, setThreads] = useState<ThreadListItem[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [threadDetail, setThreadDetail] = useState<ThreadDetailResponse | null>(null);
+  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [loadingThreadDetail, setLoadingThreadDetail] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<DatasetStats | null>(null);
-  const [catalog, setCatalog] = useState<ModelSpec[]>(MODEL_SPECS);
+  const [submittingFeedbackMessageId, setSubmittingFeedbackMessageId] = useState<string | null>(null);
+  const [submittingThreadFeedback, setSubmittingThreadFeedback] = useState(false);
   const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
-  const [temperature, setTemperature] = useState(0.2);
+  const [sources, setSources] = useState<RetrievalSource[]>(["support", "dev"]);
   const [topK, setTopK] = useState(6);
+  const [temperature, setTemperature] = useState(0.2);
   const [maxOutputTokens, setMaxOutputTokens] = useState(1200);
-  const [apiKey, setApiKey] = useState("");
-  const activeThreadIdRef = useRef(activeThreadId);
+  const [modelCatalog, setModelCatalog] = useState<ModelSpec[]>(MODEL_SPECS);
+  const [showAllModels, setShowAllModels] = useState(false);
+  const [datasetStats, setDatasetStats] = useState<StatsResponse["dataset"] | null>(null);
+  const [keyMode, setKeyMode] = useState<"house" | "personal">("house");
+  const [userApiKeys, setUserApiKeys] = useState<UserApiKeyItem[]>([]);
+  const [selectedUserApiKeyId, setSelectedUserApiKeyId] = useState<string>("");
+  const [newApiKeyLabel, setNewApiKeyLabel] = useState("");
+  const [newApiKeyProvider, setNewApiKeyProvider] = useState<ApiKeyProvider>("openai");
+  const [newApiKeyValue, setNewApiKeyValue] = useState("");
+  const [savingApiKey, setSavingApiKey] = useState(false);
+  const [deletingApiKeyId, setDeletingApiKeyId] = useState<string | null>(null);
+
+  const selectedModel = useMemo(
+    () => modelCatalog.find((model) => model.id === modelId) ?? modelCatalog[0] ?? MODEL_SPECS[0],
+    [modelCatalog, modelId]
+  );
+  const sourceLabel = useMemo(() => {
+    if (sources.length === 0) {
+      return "None";
+    }
+    if (sources.length === SOURCE_OPTIONS.length) {
+      return "Support + Dev";
+    }
+    return SOURCE_OPTIONS.find((option) => option.id === sources[0])?.label ?? sources[0];
+  }, [sources]);
+  const accountLabel = useMemo(() => {
+    const name = me?.user.name?.trim();
+    if (name) {
+      return name.split(/\s+/)[0];
+    }
+    const email = me?.user.email?.trim();
+    if (!email) {
+      return "Account";
+    }
+    return email.split("@")[0].slice(0, 18);
+  }, [me?.user.email, me?.user.name]);
+  const accountInitial = accountLabel.charAt(0).toUpperCase();
+  const modelProvider = useMemo(() => {
+    const separator = modelId.indexOf(":");
+    return separator > 0 ? modelId.slice(0, separator) : "";
+  }, [modelId]);
+  const compatiblePersonalKeys = useMemo(
+    () => userApiKeys.filter((key) => key.provider === modelProvider),
+    [modelProvider, userApiKeys]
+  );
+  const visibleModelCatalog = useMemo(
+    () => buildVisibleModelCatalog(modelCatalog, showAllModels, modelId),
+    [modelCatalog, showAllModels, modelId]
+  );
 
   useEffect(() => {
-    activeThreadIdRef.current = activeThreadId;
+    void loadMe();
+    void loadStats();
+    void loadUserApiKeys();
+  }, []);
+
+  useEffect(() => {
+    void loadThreads(scope);
+  }, [scope]);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      setThreadDetail(null);
+      return;
+    }
+
+    void loadThread(activeThreadId);
   }, [activeThreadId]);
 
   useEffect(() => {
-    const saved = loadSettings();
-    if (saved) {
-      if (typeof saved.modelId === "string") {
-        setModelId(coerceModelId(saved.modelId, MODEL_SPECS));
-      }
-      if (typeof saved.temperature === "number") {
-        setTemperature(saved.temperature);
-      }
-      if (typeof saved.topK === "number") {
-        setTopK(saved.topK);
-      }
-      if (typeof saved.maxOutputTokens === "number") {
-        setMaxOutputTokens(saved.maxOutputTokens);
-      }
-      if (ALLOW_CLIENT_API_KEY_OVERRIDE && typeof saved.apiKey === "string") {
-        setApiKey(saved.apiKey);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    saveSettings({
-      modelId,
-      temperature,
-      topK,
-      maxOutputTokens,
-      apiKey: ALLOW_CLIENT_API_KEY_OVERRIDE ? apiKey : "",
-    });
-  }, [modelId, temperature, topK, maxOutputTokens, apiKey]);
-
-  useEffect(() => {
-    const saved = loadThreads();
-
-    if (saved && saved.threads.length > 0) {
-      const orderedThreads = sortThreads(saved.threads);
-      setThreads(orderedThreads);
-      if (orderedThreads.some((thread) => thread.id === saved.activeThreadId)) {
-        setActiveThreadId(saved.activeThreadId);
-      } else {
-        setActiveThreadId(orderedThreads[0].id);
-      }
-      setThreadsHydrated(true);
+    if (keyMode !== "personal") {
       return;
     }
 
-    const initialThread = createThread();
-    setThreads([initialThread]);
-    setActiveThreadId(initialThread.id);
-    setThreadsHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!threadsHydrated || !activeThreadId) {
+    if (!selectedUserApiKeyId || compatiblePersonalKeys.some((key) => key.id === selectedUserApiKeyId)) {
       return;
     }
-    saveThreads({ activeThreadId, threads });
-  }, [activeThreadId, threads, threadsHydrated]);
 
-  useEffect(() => {
-    if (!threadsHydrated || threads.length === 0) {
-      return;
-    }
-    if (!threads.some((thread) => thread.id === activeThreadId)) {
-      setActiveThreadId(threads[0].id);
-    }
-  }, [activeThreadId, threads, threadsHydrated]);
+    setSelectedUserApiKeyId(compatiblePersonalKeys[0]?.id ?? "");
+  }, [keyMode, selectedUserApiKeyId, compatiblePersonalKeys]);
 
-  useEffect(() => {
-    let active = true;
-
-    async function fetchStats() {
-      try {
-        const response = await fetch("/api/stats", { method: "GET" });
-        if (!response.ok) {
-          throw new Error(`Stats failed: ${response.status}`);
-        }
-        const json = (await response.json()) as StatsResponse;
-
-        if (!active) {
-          return;
-        }
-
-        setStats(json.dataset);
-        if (Array.isArray(json.models) && json.models.length > 0) {
-          setCatalog(json.models);
-          setModelId((current) => coerceModelId(current, json.models));
-        }
-      } catch {
-        if (active) {
-          setCatalog(MODEL_SPECS);
-          setModelId((current) => coerceModelId(current, MODEL_SPECS));
-        }
+  async function loadMe() {
+    const response = await fetch("/api/me", { method: "GET" });
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "/signin";
+        return;
       }
+      throw new Error(`Failed to load profile (${response.status})`);
     }
 
-    void fetchStats();
+    const payload = (await response.json()) as MeResponse;
+    setMe(payload);
+  }
 
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const groupedModels = useMemo(() => groupModelsByProvider(catalog), [catalog]);
-  const selectedModel = useMemo(
-    () => catalog.find((model) => model.id === modelId) ?? findModelSpec(modelId) ?? catalog[0] ?? MODEL_SPECS[0],
-    [catalog, modelId]
-  );
-  const modelUsesFixedTemperature = useMemo(
-    () => selectedModel?.provider === "openai" && selectedModel.apiModel.startsWith("gpt-5"),
-    [selectedModel]
-  );
-  const orderedThreads = useMemo(() => sortThreads(threads), [threads]);
-  const activeThread = useMemo(
-    () => orderedThreads.find((thread) => thread.id === activeThreadId) ?? null,
-    [activeThreadId, orderedThreads]
-  );
-  const messages = activeThread?.messages ?? [];
-
-  const threadMetrics = useMemo(() => {
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let totalTokens = 0;
-    let totalCostUsd = 0;
-    let userEstimatedTokens = 0;
-
-    for (const message of messages) {
-      if (message.role === "user") {
-        userEstimatedTokens += message.estimatedTokens ?? estimateTokens(message.content);
+  async function loadStats() {
+    try {
+      const response = await fetch("/api/stats", { method: "GET" });
+      if (!response.ok) {
+        return;
       }
-
-      if (message.usage) {
-        inputTokens += message.usage.inputTokens;
-        outputTokens += message.usage.outputTokens;
-        totalTokens += message.usage.totalTokens;
+      const payload = (await response.json()) as StatsResponse;
+      if (Array.isArray(payload.models) && payload.models.length > 0) {
+        setModelCatalog(payload.models);
+        setModelId((current) => {
+          if (payload.models.some((model) => model.id === current)) {
+            return current;
+          }
+          if (payload.models.some((model) => model.id === DEFAULT_MODEL_ID)) {
+            return DEFAULT_MODEL_ID;
+          }
+          return payload.models[0].id;
+        });
       }
-
-      if (message.cost) {
-        totalCostUsd += message.cost.totalCostUsd;
-      }
+      setDatasetStats(payload.dataset);
+    } catch {
+      // Non-critical. Keep local model presets.
     }
+  }
 
-    return {
-      inputTokens,
-      outputTokens,
-      totalTokens,
-      totalCostUsd,
-      userEstimatedTokens,
-    };
-  }, [messages]);
-
-  function updateThread(threadId: string, updater: (thread: UiThread) => UiThread) {
-    setThreads((previous) => {
-      let didChange = false;
-      const next = previous.map((thread) => {
-        if (thread.id !== threadId) {
-          return thread;
+  async function loadUserApiKeys() {
+    try {
+      const response = await fetch("/api/me/keys", { method: "GET" });
+      if (!response.ok) {
+        throw new Error(`Failed to load API keys (${response.status})`);
+      }
+      const payload = (await response.json()) as UserApiKeysResponse;
+      setUserApiKeys(payload.items);
+      setSelectedUserApiKeyId((current) => {
+        if (current && payload.items.some((item) => item.id === current)) {
+          return current;
         }
-        didChange = true;
-        return updater(thread);
+        return payload.items[0]?.id ?? "";
       });
-      if (!didChange) {
-        return previous;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load personal API keys.");
+    }
+  }
+
+  async function handleSaveApiKey() {
+    if (savingApiKey) {
+      return;
+    }
+
+    const label = newApiKeyLabel.trim();
+    const apiKey = newApiKeyValue.trim();
+    if (!label || !apiKey) {
+      setError("Provide both a key label and API key value.");
+      return;
+    }
+
+    try {
+      setSavingApiKey(true);
+      setError(null);
+      const response = await fetch("/api/me/keys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          provider: newApiKeyProvider,
+          label,
+          apiKey,
+        }),
+      });
+
+      const payload = (await response.json()) as { error?: string; key?: UserApiKeyItem };
+      if (!response.ok) {
+        throw new Error(payload.error || `Failed to save API key (${response.status})`);
       }
-      return sortThreads(next);
+
+      setNewApiKeyLabel("");
+      setNewApiKeyValue("");
+      await loadUserApiKeys();
+      setKeyMode("personal");
+      if (payload.key?.id) {
+        setSelectedUserApiKeyId(payload.key.id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save API key.");
+    } finally {
+      setSavingApiKey(false);
+    }
+  }
+
+  async function handleDeleteApiKey(id: string) {
+    if (deletingApiKeyId) {
+      return;
+    }
+
+    try {
+      setDeletingApiKeyId(id);
+      setError(null);
+      const response = await fetch(`/api/me/keys/${id}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || `Failed to delete API key (${response.status})`);
+      }
+      await loadUserApiKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete API key.");
+    } finally {
+      setDeletingApiKeyId(null);
+    }
+  }
+
+  async function loadThreads(nextScope: "all" | "mine") {
+    try {
+      setLoadingThreads(true);
+      const response = await fetch(`/api/threads?scope=${nextScope}`, { method: "GET" });
+      if (!response.ok) {
+        throw new Error(`Failed to load threads (${response.status})`);
+      }
+
+      const payload = (await response.json()) as ThreadListResponse;
+      setThreads(payload.items);
+
+      if (payload.items.length === 0) {
+        setActiveThreadId(null);
+        return;
+      }
+
+      setActiveThreadId((current) => {
+        if (current && payload.items.some((thread) => thread.id === current)) {
+          return current;
+        }
+        return payload.items[0].id;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load threads.");
+    } finally {
+      setLoadingThreads(false);
+    }
+  }
+
+  async function loadThread(threadId: string) {
+    try {
+      setLoadingThreadDetail(true);
+      const response = await fetch(`/api/threads/${threadId}`, { method: "GET" });
+      if (!response.ok) {
+        throw new Error(`Failed to load thread (${response.status})`);
+      }
+      const payload = (await response.json()) as ThreadDetailResponse;
+      setThreadDetail(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load thread details.");
+    } finally {
+      setLoadingThreadDetail(false);
+    }
+  }
+
+  async function handleCreateThread() {
+    try {
+      const threadId = await createThread();
+      await loadThreads(scope);
+      setActiveThreadId(threadId);
+      setPrompt("");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create thread.");
+    }
+  }
+
+  async function createThread() {
+    const response = await fetch("/api/threads", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        visibility: "org",
+      }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create thread (${response.status})`);
+    }
+
+    const payload = (await response.json()) as { thread: { id: string } };
+    return payload.thread.id;
   }
 
   async function handleSend() {
     const content = prompt.trim();
-    if (!content || sending || !activeThreadId) {
+    if (!content || sending) {
       return;
     }
+    if (sources.length === 0) {
+      setError("Select at least one source for retrieval context.");
+      return;
+    }
+    if (keyMode === "personal") {
+      if (!selectedUserApiKeyId) {
+        setError("Select a compatible personal API key for this model.");
+        return;
+      }
+      if (!compatiblePersonalKeys.some((key) => key.id === selectedUserApiKeyId)) {
+        setError("Selected personal key does not match the current model provider.");
+        return;
+      }
+    }
 
-    setError(null);
-    const requestThreadId = activeThreadId;
-
-    const userMessage: UiMessage = {
-      id: createId(),
-      role: "user",
-      content,
-      createdAt: new Date().toISOString(),
-      estimatedTokens: estimateTokens(content),
-    };
-
-    const nextMessages = [...messages, userMessage];
-    updateThread(requestThreadId, (thread) => {
-      const updatedMessages = [...thread.messages, userMessage];
-      return {
-        ...thread,
-        messages: updatedMessages,
-        title: deriveThreadTitle(updatedMessages),
-        updatedAt: userMessage.createdAt,
-      };
-    });
-    setPrompt("");
     setSending(true);
+    setError(null);
 
     try {
+      const threadId = activeThreadId ?? (await createThread());
+      if (!activeThreadId) {
+        setActiveThreadId(threadId);
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          messages: nextMessages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
+          threadId,
+          content,
+          sources,
           modelId,
-          temperature: modelUsesFixedTemperature ? 1 : temperature,
           topK,
+          temperature,
           maxOutputTokens,
-          apiKey: ALLOW_CLIENT_API_KEY_OVERRIDE ? apiKey.trim() || undefined : undefined,
+          userApiKeyId: keyMode === "personal" ? selectedUserApiKeyId : null,
         }),
       });
 
-      const json = (await response.json()) as ChatResponse & { error?: string };
-
-      if (!response.ok) {
-        throw new Error(json.error || `Chat request failed (${response.status})`);
-      }
-
-      const assistant = json.assistant;
-      const assistantMessage: UiMessage = {
-        id: createId(),
-        role: "assistant",
-        content: assistant.content,
-        createdAt: new Date().toISOString(),
-        usage: assistant.usage,
-        cost: assistant.cost,
-        modelId: assistant.modelId,
-        provider: assistant.provider,
-        citations: assistant.citations,
+      const payload = (await response.json()) as ChatResponse & {
+        error?: string;
+        code?: string;
+        remainingBalanceCents?: number;
       };
 
-      updateThread(requestThreadId, (thread) => {
-        const updatedMessages = [...thread.messages, assistantMessage];
-        return {
-          ...thread,
-          messages: updatedMessages,
-          title: deriveThreadTitle(updatedMessages),
-          updatedAt: assistantMessage.createdAt,
-        };
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected error while calling chat API.";
-      setError(message);
-      updateThread(requestThreadId, (thread) => {
-        const updatedMessages = thread.messages.filter((messageItem) => messageItem.id !== userMessage.id);
-        return {
-          ...thread,
-          messages: updatedMessages,
-          title: deriveThreadTitle(updatedMessages),
-          updatedAt: new Date().toISOString(),
-        };
-      });
-      if (activeThreadIdRef.current === requestThreadId) {
-        setPrompt(content);
+      if (!response.ok) {
+        if (response.status === 402 || payload.code === "insufficient_balance") {
+          const remaining = typeof payload.remainingBalanceCents === "number" ? payload.remainingBalanceCents : null;
+          setError(
+            remaining !== null
+              ? `Insufficient balance. Remaining credit: ${formatUsdFromCents(remaining)}.`
+              : payload.error || "Insufficient balance."
+          );
+        } else {
+          throw new Error(payload.error || `Failed to send message (${response.status})`);
+        }
+      } else {
+        setPrompt("");
       }
+
+      await Promise.all([loadThread(threadId), loadThreads(scope), loadMe()]);
+      if (!activeThreadId) {
+        setActiveThreadId(threadId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message.");
     } finally {
       setSending(false);
     }
   }
 
-  function handleReset() {
+  async function submitMessageFeedback(messageId: string, rating: number, comment?: string) {
     if (!activeThreadId) {
       return;
     }
-    updateThread(activeThreadId, (thread) => ({
-      ...thread,
-      title: DEFAULT_THREAD_TITLE,
-      messages: [],
-      updatedAt: new Date().toISOString(),
-    }));
-    setError(null);
+
+    try {
+      setSubmittingFeedbackMessageId(messageId);
+      const response = await fetch(`/api/messages/${messageId}/feedback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          rating,
+          comment,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || `Failed to save feedback (${response.status})`);
+      }
+
+      await loadThread(activeThreadId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save feedback.");
+    } finally {
+      setSubmittingFeedbackMessageId(null);
+    }
   }
 
-  function handleCreateThread() {
-    const thread = createThread();
-    setThreads((previous) => sortThreads([thread, ...previous]));
-    setActiveThreadId(thread.id);
-    setPrompt("");
-    setError(null);
+  function toggleSource(source: RetrievalSource) {
+    setSources((current) => {
+      const next = current.includes(source) ? current.filter((item) => item !== source) : [...current, source];
+      return SOURCE_OPTIONS.map((item) => item.id).filter((item) => next.includes(item));
+    });
   }
 
-  function handleSelectThread(threadId: string) {
-    if (threadId === activeThreadId) {
+  async function submitThreadFeedback(rating: number, comment?: string) {
+    if (!activeThreadId) {
       return;
     }
-    setActiveThreadId(threadId);
-    setPrompt("");
-    setError(null);
-  }
 
-  function handleDeleteThread(threadId: string) {
-    if (threads.length <= 1) {
-      const replacement = createThread();
-      setThreads([replacement]);
-      setActiveThreadId(replacement.id);
-      setPrompt("");
-      setError(null);
-      return;
-    }
+    try {
+      setSubmittingThreadFeedback(true);
+      const response = await fetch(`/api/threads/${activeThreadId}/feedback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          rating,
+          comment,
+        }),
+      });
 
-    const remaining = sortThreads(threads.filter((thread) => thread.id !== threadId));
-    setThreads(remaining);
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || `Failed to save thread feedback (${response.status})`);
+      }
 
-    if (activeThreadId === threadId) {
-      setActiveThreadId(remaining[0].id);
-      setPrompt("");
-      setError(null);
+      await loadThread(activeThreadId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save thread feedback.");
+    } finally {
+      setSubmittingThreadFeedback(false);
     }
   }
 
@@ -402,25 +611,32 @@ export function RagLab() {
     <div className="lab-shell">
       <header className="lab-header panel">
         <div>
-          <p className="eyebrow">RAG Research Protocol</p>
-          <h1>Clever Support Research Lab</h1>
-          <p className="subtitle">
-            Evidence-driven retrieval and generation workspace with token, pricing, and dataset telemetry.
-          </p>
+          <p className="eyebrow">RAG Workspace</p>
+          <h1>Clever Support Chat</h1>
+          <p className="subtitle">Shared, persisted threads with budget and feedback controls.</p>
         </div>
+
         <div className="header-stats">
           <div className="stat-pill">
-            <span>Articles</span>
-            <strong>{stats ? stats.articleCount.toLocaleString() : "-"}</strong>
+            <span>Role</span>
+            <strong>{me?.user.role ?? "-"}</strong>
           </div>
           <div className="stat-pill">
-            <span>Chunks</span>
-            <strong>{stats ? stats.chunkCount.toLocaleString() : "-"}</strong>
+            <span>Credit</span>
+            <strong>{formatUsdFromCents(me?.wallet.balanceCents ?? 0)}</strong>
           </div>
-          <div className="stat-pill">
-            <span>Thread Cost</span>
-            <strong>{usd(threadMetrics.totalCostUsd)}</strong>
-          </div>
+          <Link href="/docs" className="header-link">
+            Browse Docs
+          </Link>
+          <Link href="/models" className="header-link">
+            Model Guide
+          </Link>
+          <Link href="/profile" className="header-account" aria-label="Open profile">
+            <span className="header-account-avatar" aria-hidden="true">
+              {accountInitial}
+            </span>
+            <span className="header-account-name">{accountLabel}</span>
+          </Link>
         </div>
       </header>
 
@@ -432,222 +648,336 @@ export function RagLab() {
               New Thread
             </button>
           </div>
-          <p className="threads-note">
-            {orderedThreads.length.toLocaleString()} saved locally in your browser localStorage.
-          </p>
+
+          <div className="scope-toggle" role="tablist" aria-label="Thread scope">
+            <button
+              type="button"
+              className={scope === "all" ? "active" : ""}
+              onClick={() => setScope("all")}
+              disabled={loadingThreads}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={scope === "mine" ? "active" : ""}
+              onClick={() => setScope("mine")}
+              disabled={loadingThreads}
+            >
+              Mine
+            </button>
+          </div>
 
           <ul className="thread-list">
-            {orderedThreads.map((thread) => {
-              const lastMessage = thread.messages[thread.messages.length - 1];
-              const preview = lastMessage ? summarizeText(lastMessage.content, 90) || "Empty message." : "No messages yet.";
-              const active = thread.id === activeThreadId;
-
-              return (
-                <li key={thread.id} className={`thread-row ${active ? "active" : ""}`}>
-                  <button type="button" className="thread-item" onClick={() => handleSelectThread(thread.id)}>
-                    <span className="thread-title">{thread.title}</span>
-                    <span className="thread-preview">{preview}</span>
-                    <span className="thread-meta">
-                      {thread.messages.length.toLocaleString()} msg · {formatThreadTimestamp(thread.updatedAt)}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="thread-delete"
-                    onClick={() => handleDeleteThread(thread.id)}
-                    disabled={sending || orderedThreads.length <= 1}
-                    aria-label={`Delete thread ${thread.title}`}
-                  >
-                    Delete
-                  </button>
-                </li>
-              );
-            })}
+            {loadingThreads ? (
+              <li className="thread-row">
+                <p className="muted">Loading threads...</p>
+              </li>
+            ) : threads.length === 0 ? (
+              <li className="thread-row">
+                <p className="muted">No threads yet. Start with "New Thread".</p>
+              </li>
+            ) : (
+              threads.map((thread) => {
+                const active = thread.id === activeThreadId;
+                return (
+                  <li key={thread.id} className={`thread-row ${active ? "active" : ""}`}>
+                    <button
+                      type="button"
+                      className="thread-item"
+                      onClick={() => {
+                        setActiveThreadId(thread.id);
+                        setError(null);
+                      }}
+                    >
+                      <span className="thread-title">{thread.title}</span>
+                      <span className="thread-preview">
+                        {thread.lastMessage?.contentPreview?.slice(0, MAX_PREVIEW_LENGTH) || "No messages yet."}
+                      </span>
+                      <span className="thread-meta">
+                        {thread.messageCount.toLocaleString()} msg · {formatThreadTimestamp(thread.updatedAt)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })
+            )}
           </ul>
+
+          <div className="nav-links">
+            <a href="/api/auth/signout?callbackUrl=/signin" className="ghost-button">
+              Sign out
+            </a>
+            {me?.user.role === "admin" ? (
+              <a href="/admin" className="ghost-button">
+                Admin
+              </a>
+            ) : null}
+          </div>
         </aside>
 
         <section className="chat-column panel">
           <div className="chat-toolbar">
             <p>
-              Thread: <strong>{activeThread?.title ?? DEFAULT_THREAD_TITLE}</strong>
+              Thread: <strong>{threadDetail?.thread.title ?? "No thread selected"}</strong>
             </p>
             <p>
               Model: <strong>{selectedModel?.label ?? modelId}</strong>
             </p>
-            <button type="button" onClick={handleReset} className="ghost-button" disabled={sending || !messages.length}>
-              Clear Thread
-            </button>
+            <p>
+              Sources: <strong>{sourceLabel}</strong>
+            </p>
           </div>
 
           <div className="messages">
-            {messages.length === 0 ? (
+            {loadingThreadDetail ? (
               <div className="empty-state">
-                <h2>Ask anything about Clever support docs</h2>
-                <p>
-                  Example: "How do teachers request a paid app in Clever Library, and who gets notified?"
-                </p>
+                <p>Loading thread messages...</p>
+              </div>
+            ) : !threadDetail ? (
+              <div className="empty-state">
+                <h2>No thread selected</h2>
+                <p>Create or select a thread to start chatting.</p>
+              </div>
+            ) : threadDetail.messages.length === 0 ? (
+              <div className="empty-state">
+                <h2>Ask about Clever support docs</h2>
+                <p>Threads are visible org-wide by default unless created as private.</p>
               </div>
             ) : (
-              messages.map((message, idx) => {
-                const isAssistant = message.role === "assistant";
-                const modelInfo = message.modelId ? findModelSpec(message.modelId) : undefined;
+              threadDetail.messages.map((message) => (
+                <article key={message.id} className={`message-card ${message.role}`}>
+                  <header>
+                    <span className="role-label">
+                      {message.role === "assistant" ? "Assistant" : message.role === "user" ? "You" : "System"}
+                    </span>
+                    <span className="timestamp">{new Date(message.createdAt).toLocaleString()}</span>
+                  </header>
 
-                return (
-                  <article
-                    key={message.id}
-                    className={`message-card ${message.role}`}
-                    style={{ animationDelay: `${idx * 0.04}s` }}
-                  >
-                    <header>
-                      <span className="role-label">{isAssistant ? "Assistant" : "You"}</span>
-                      <span className="timestamp">{new Date(message.createdAt).toLocaleTimeString()}</span>
-                    </header>
+                  {message.role === "assistant" ? (
+                    <AssistantMessageText content={message.content} hasStructuredCitations={message.citations.length > 0} />
+                  ) : (
+                    <p className="message-text user-text">{message.content}</p>
+                  )}
 
-                    {isAssistant ? (
-                      <div className="message-text assistant-text">{renderAssistantMarkdown(message.content)}</div>
-                    ) : (
-                      <p className="message-text user-text">{message.content}</p>
-                    )}
-
-                    <footer className="message-meta">
-                      {isAssistant && message.usage ? (
-                        <>
-                          <span>Input {message.usage.inputTokens.toLocaleString()} tok</span>
-                          <span>Output {message.usage.outputTokens.toLocaleString()} tok</span>
-                          <span>Total {message.usage.totalTokens.toLocaleString()} tok</span>
-                          <span>{message.cost ? usd(message.cost.totalCostUsd) : "$0.000000"}</span>
-                          {message.cost ? (
-                            <span>
-                              Rate {message.cost.inputRateUsdPerMillion}/{message.cost.outputRateUsdPerMillion} per 1M
-                            </span>
-                          ) : null}
-                          <span>{modelInfo?.label ?? message.modelId}</span>
-                        </>
-                      ) : (
-                        <span>~{(message.estimatedTokens ?? estimateTokens(message.content)).toLocaleString()} tok (est)</span>
-                      )}
-                    </footer>
-
-                    {isAssistant && message.citations && message.citations.length > 0 ? (
-                      <div className="citations">
-                        <p className="citations-title">Sources used</p>
-                        {message.citations.map((citation) => (
-                          <details key={citation.chunkId}>
-                            <summary>
-                              [{citation.index}] {citation.title}
-                            </summary>
-                            <p>
-                              <a href={citation.url} target="_blank" rel="noreferrer">
-                                {citation.url}
-                              </a>
-                            </p>
-                            <p className="snippet">{citation.snippet}</p>
-                          </details>
-                        ))}
-                      </div>
+                  <footer className="message-meta">
+                    {message.modelId ? <span>{message.modelId}</span> : null}
+                    {message.provider ? <span>{message.provider}</span> : null}
+                    {message.usage?.inputTokens ? <span>Input {message.usage.inputTokens.toLocaleString()} tok</span> : null}
+                    {message.usage?.outputTokens ? <span>Output {message.usage.outputTokens.toLocaleString()} tok</span> : null}
+                    {message.costCents > 0 ? <span>{formatUsdFromCents(message.costCents)}</span> : null}
+                    {message.feedback.count > 0 ? (
+                      <span>
+                        Rating {message.feedback.averageRating?.toFixed(2) ?? "-"} ({message.feedback.count})
+                      </span>
                     ) : null}
-                  </article>
-                );
-              })
+                  </footer>
+
+                  {message.citations.length > 0 ? (
+                    <details className="citations">
+                      <summary>Sources ({message.citations.length})</summary>
+                      {message.citations.map((citation) => (
+                        <div key={citation.id} className="citation-row">
+                          <p className="citations-title">
+                            <a href={citation.url} target="_blank" rel="noreferrer">
+                              {citation.title}
+                            </a>
+                          </p>
+                          <p className="snippet">{citation.snippet}</p>
+                        </div>
+                      ))}
+                    </details>
+                  ) : null}
+
+                  {message.role === "assistant" ? (
+                    <MessageFeedbackBox
+                      message={message}
+                      disabled={submittingFeedbackMessageId === message.id}
+                      onSubmit={(rating, comment) => submitMessageFeedback(message.id, rating, comment)}
+                    />
+                  ) : null}
+                </article>
+              ))
             )}
-            {sending ? <div className="thinking">Generating answer...</div> : null}
           </div>
 
           <div className="composer">
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Ask a question about Clever support..."
-              rows={4}
+              placeholder="Ask about Clever support flows, policies, or setup steps..."
+              disabled={sending}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                   event.preventDefault();
                   void handleSend();
                 }
               }}
             />
+
+            {error ? <p className="error">{error}</p> : null}
+
             <div className="composer-actions">
-              {error ? <p className="error">{error}</p> : <p>Press Enter to send, Shift+Enter for newline.</p>}
+              <p>{activeThreadId ? "Cmd/Ctrl + Enter to send" : "Cmd/Ctrl + Enter to send (creates a thread)"}</p>
               <button type="button" onClick={() => void handleSend()} disabled={sending || !prompt.trim()}>
-                {sending ? "Sending..." : "Ask"}
+                {sending ? "Sending..." : "Send"}
               </button>
             </div>
           </div>
         </section>
 
         <aside className="settings-column panel">
-          <h2>Research Controls</h2>
+          <h2>Session</h2>
 
-          <label>
-            Model
+          <div className="settings-field">
+            <p className="settings-field-label">Model</p>
+            <label className="model-filter-toggle">
+              <input
+                type="checkbox"
+                checked={showAllModels}
+                onChange={(event) => setShowAllModels(event.target.checked)}
+              />
+              <span>Show all available models</span>
+            </label>
             <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-              {Object.entries(groupedModels).map(([provider, providerModels]) => (
-                <optgroup key={provider} label={provider.toUpperCase()}>
-                  {providerModels.map((model) => (
-                    <option value={model.id} key={model.id}>
-                      {formatModelOptionLabel(model)}
-                    </option>
-                  ))}
-                </optgroup>
+              {visibleModelCatalog.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
               ))}
             </select>
-          </label>
+          </div>
 
-          {selectedModel ? (
-            <div className="model-note">
-              <p>{selectedModel.description}</p>
-              <p>
-                Input ${selectedModel.inputPerMillionUsd}/1M tok, output ${selectedModel.outputPerMillionUsd}/1M tok
-              </p>
-              {typeof selectedModel.longContextThresholdTokens === "number" &&
-              typeof selectedModel.longContextInputPerMillionUsd === "number" &&
-              typeof selectedModel.longContextOutputPerMillionUsd === "number" ? (
-                <p>
-                  Over {selectedModel.longContextThresholdTokens.toLocaleString()} prompt tok: input $
-                  {selectedModel.longContextInputPerMillionUsd}/1M, output $
-                  {selectedModel.longContextOutputPerMillionUsd}/1M
+          <div className="settings-field">
+            <label className="model-filter-toggle">
+              <input
+                type="checkbox"
+                checked={keyMode === "personal"}
+                onChange={(event) => {
+                  const usePersonal = event.target.checked;
+                  setKeyMode(usePersonal ? "personal" : "house");
+                  if (usePersonal && !selectedUserApiKeyId) {
+                    setSelectedUserApiKeyId(compatiblePersonalKeys[0]?.id ?? "");
+                  }
+                }}
+              />
+              <span>Use personal API key (no app billing)</span>
+            </label>
+          </div>
+
+          {keyMode === "personal" ? (
+            <>
+              <div className="settings-field">
+                <p className="settings-field-label">Personal key for this model</p>
+                <select value={selectedUserApiKeyId} onChange={(event) => setSelectedUserApiKeyId(event.target.value)}>
+                  {compatiblePersonalKeys.length === 0 ? (
+                    <option value="">No compatible personal key saved</option>
+                  ) : (
+                    compatiblePersonalKeys.map((key) => (
+                      <option key={key.id} value={key.id}>
+                        {key.label} ({key.keyPreview})
+                      </option>
+                    ))
+                  )}
+                </select>
+                <p className="muted">
+                  Model provider: <strong>{modelProvider || "unknown"}</strong>
                 </p>
-              ) : null}
-              {selectedModel.pricingNotes ? <p>{selectedModel.pricingNotes}</p> : null}
-              <p className="muted">Pricing source: {selectedModel.pricingSource}</p>
-            </div>
+              </div>
+
+              <div className="dataset-note">
+                <h3>Personal API keys</h3>
+                <p>Saved: {userApiKeys.length}</p>
+                {userApiKeys.length === 0 ? (
+                  <p className="muted">No personal keys saved yet.</p>
+                ) : (
+                  userApiKeys.map((item) => (
+                    <p key={item.id}>
+                      {item.label} ({item.provider}) {item.keyPreview}{" "}
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => void handleDeleteApiKey(item.id)}
+                        disabled={deletingApiKeyId === item.id}
+                      >
+                        {deletingApiKeyId === item.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </p>
+                  ))
+                )}
+                <select
+                  value={newApiKeyProvider}
+                  onChange={(event) => setNewApiKeyProvider(event.target.value as ApiKeyProvider)}
+                >
+                  <option value="openai">openai</option>
+                  <option value="anthropic">anthropic</option>
+                  <option value="gemini">gemini</option>
+                </select>
+                <input
+                  type="text"
+                  value={newApiKeyLabel}
+                  placeholder="Label (e.g. Personal OpenAI)"
+                  onChange={(event) => setNewApiKeyLabel(event.target.value)}
+                />
+                <input
+                  type="password"
+                  value={newApiKeyValue}
+                  placeholder="Paste API key"
+                  onChange={(event) => setNewApiKeyValue(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => void handleSaveApiKey()}
+                  disabled={savingApiKey}
+                >
+                  {savingApiKey ? "Saving..." : "Save personal key"}
+                </button>
+              </div>
+            </>
           ) : null}
 
-          {ALLOW_CLIENT_API_KEY_OVERRIDE ? (
-            <label>
-              API key override (optional)
-              <input
-                type="password"
-                value={apiKey}
-                placeholder="sk-... / sk-ant-... / AIza..."
-                onChange={(event) => setApiKey(event.target.value)}
-              />
-            </label>
-          ) : (
-            <p className="muted">Provider keys are configured server-side.</p>
-          )}
+          <div className="settings-field">
+            <p className="settings-field-label">Context sources</p>
+            <div className="source-chip-row">
+              {SOURCE_OPTIONS.map((sourceOption) => {
+                const selected = sources.includes(sourceOption.id);
+                const count = datasetStats?.sourceDocCounts?.[sourceOption.id];
+                return (
+                  <button
+                    key={sourceOption.id}
+                    type="button"
+                    className={`source-chip ${selected ? "active" : ""}`}
+                    onClick={() => toggleSource(sourceOption.id)}
+                  >
+                    <span>{sourceOption.label}</span>
+                    {typeof count === "number" ? <small>{count.toLocaleString()}</small> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <label>
-            Retrieval chunks ({topK})
+            Top K
             <input
-              type="range"
+              type="number"
               min={2}
               max={10}
               value={topK}
-              onChange={(event) => setTopK(Number(event.target.value))}
+              onChange={(event) => setTopK(Number(event.target.value) || 6)}
             />
           </label>
 
           <label>
-            Temperature ({modelUsesFixedTemperature ? "1.00 (fixed for GPT-5)" : temperature.toFixed(2)})
+            Temperature
             <input
-              type="range"
+              type="number"
               min={0}
               max={1.2}
-              step={0.05}
-              value={modelUsesFixedTemperature ? 1 : temperature}
-              disabled={modelUsesFixedTemperature}
-              onChange={(event) => setTemperature(Number(event.target.value))}
+              step={0.1}
+              value={temperature}
+              onChange={(event) => setTemperature(Number(event.target.value) || 0.2)}
             />
           </label>
 
@@ -655,167 +985,155 @@ export function RagLab() {
             Max output tokens
             <input
               type="number"
-              min={256}
+              min={128}
               max={4096}
               value={maxOutputTokens}
-              onChange={(event) => setMaxOutputTokens(Number(event.target.value))}
+              onChange={(event) => setMaxOutputTokens(Number(event.target.value) || 1200)}
             />
           </label>
 
-          <div className="thread-metrics">
-            <h3>Thread usage</h3>
-            <p>Prompt tokens (billed): {threadMetrics.inputTokens.toLocaleString()}</p>
-            <p>Completion tokens (billed): {threadMetrics.outputTokens.toLocaleString()}</p>
-            <p>Total billed tokens: {threadMetrics.totalTokens.toLocaleString()}</p>
-            <p>User tokens (estimated): {threadMetrics.userEstimatedTokens.toLocaleString()}</p>
-            <p className="cost">Estimated cost: {usd(threadMetrics.totalCostUsd)}</p>
-          </div>
+          {threadDetail ? (
+            <ThreadFeedbackBox
+              disabled={submittingThreadFeedback}
+              thread={threadDetail.thread}
+              onSubmit={(rating, comment) => submitThreadFeedback(rating, comment)}
+            />
+          ) : null}
 
-          {stats ? (
+          {datasetStats ? (
             <div className="dataset-note">
               <h3>Dataset</h3>
-              <p>{stats.articleCount.toLocaleString()} articles loaded.</p>
-              <p>{stats.chunkCount.toLocaleString()} chunks available for retrieval.</p>
-              <p className="muted">Source file: {stats.chunksPath}</p>
+              <p>{datasetStats.articleCount.toLocaleString()} articles indexed</p>
+              <p>{datasetStats.chunkCount.toLocaleString()} chunks loaded</p>
+              {datasetStats.sourceDocCounts ? (
+                <p className="muted">
+                  support docs: {(datasetStats.sourceDocCounts.support ?? 0).toLocaleString()} · dev docs:{" "}
+                  {(datasetStats.sourceDocCounts.dev ?? 0).toLocaleString()}
+                </p>
+              ) : null}
+              {datasetStats.sourceChunkCounts ? (
+                <p className="muted">
+                  support chunks: {(datasetStats.sourceChunkCounts.support ?? 0).toLocaleString()} · dev chunks:{" "}
+                  {(datasetStats.sourceChunkCounts.dev ?? 0).toLocaleString()}
+                </p>
+              ) : null}
+              <p className="muted">{datasetStats.chunksPath}</p>
             </div>
-          ) : (
-            <p className="muted">Loading dataset stats...</p>
-          )}
+          ) : null}
+
+          <div className="dataset-note">
+            <h3>Wallet</h3>
+            <p>Remaining: {formatUsdFromCents(me?.wallet.balanceCents ?? 0)}</p>
+            <p>Total granted: {formatUsdFromCents(me?.wallet.lifetimeGrantedCents ?? 0)}</p>
+            <p>Total spent: {formatUsdFromCents(me?.wallet.lifetimeSpentCents ?? 0)}</p>
+          </div>
         </aside>
       </main>
     </div>
   );
 }
 
-function groupModelsByProvider(models: ModelSpec[]): Record<string, ModelSpec[]> {
-  const grouped: Record<string, ModelSpec[]> = {};
-  for (const model of models) {
-    if (!grouped[model.provider]) {
-      grouped[model.provider] = [];
-    }
-    grouped[model.provider].push(model);
-  }
-  return grouped;
+function MessageFeedbackBox({
+  message,
+  onSubmit,
+  disabled,
+}: {
+  message: ThreadMessage;
+  onSubmit: (rating: number, comment: string) => void;
+  disabled: boolean;
+}) {
+  const [rating, setRating] = useState<number>(message.feedback.mine?.rating ?? 5);
+  const [comment, setComment] = useState<string>(message.feedback.mine?.comment ?? "");
+
+  return (
+    <div className="feedback-box">
+      <p className="feedback-title">Rate this response</p>
+      <div className="feedback-controls">
+        <select value={rating} onChange={(event) => setRating(Number(event.target.value))} disabled={disabled}>
+          <option value={5}>5 - Excellent</option>
+          <option value={4}>4 - Good</option>
+          <option value={3}>3 - Okay</option>
+          <option value={2}>2 - Weak</option>
+          <option value={1}>1 - Incorrect</option>
+        </select>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={disabled}
+          onClick={() => onSubmit(rating, comment)}
+        >
+          {disabled ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <textarea
+        className="feedback-comment"
+        rows={2}
+        value={comment}
+        onChange={(event) => setComment(event.target.value)}
+        placeholder="Optional comment"
+        disabled={disabled}
+      />
+    </div>
+  );
 }
 
-function formatModelOptionLabel(model: ModelSpec): string {
-  return `${model.label} (${formatRateUsd(model.inputPerMillionUsd)} in, ${formatRateUsd(
-    model.outputPerMillionUsd
-  )} out /1M tok)`;
+function ThreadFeedbackBox({
+  thread,
+  onSubmit,
+  disabled,
+}: {
+  thread: ThreadDetailResponse["thread"];
+  onSubmit: (rating: number, comment: string) => void;
+  disabled: boolean;
+}) {
+  const [rating, setRating] = useState<number>(thread.feedback.mine?.rating ?? 5);
+  const [comment, setComment] = useState<string>(thread.feedback.mine?.comment ?? "");
+
+  return (
+    <div className="dataset-note">
+      <h3>Thread Feedback</h3>
+      <p>
+        Average: {thread.feedback.averageRating ? thread.feedback.averageRating.toFixed(2) : "-"} ({thread.feedback.count})
+      </p>
+      <div className="feedback-controls">
+        <select value={rating} onChange={(event) => setRating(Number(event.target.value))} disabled={disabled}>
+          <option value={5}>5 - Excellent</option>
+          <option value={4}>4 - Good</option>
+          <option value={3}>3 - Okay</option>
+          <option value={2}>2 - Weak</option>
+          <option value={1}>1 - Poor</option>
+        </select>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={disabled}
+          onClick={() => onSubmit(rating, comment)}
+        >
+          {disabled ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <textarea
+        className="feedback-comment"
+        rows={2}
+        value={comment}
+        onChange={(event) => setComment(event.target.value)}
+        placeholder="Optional thread-level feedback"
+        disabled={disabled}
+      />
+    </div>
+  );
 }
 
-function formatRateUsd(value: number): string {
-  return `$${value.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 6,
-  })}`;
-}
-
-function coerceModelId(candidate: string | undefined, catalog: ModelSpec[]): string {
-  if (typeof candidate === "string" && catalog.some((spec) => spec.id === candidate)) {
-    return candidate;
-  }
-
-  if (catalog.some((spec) => spec.id === DEFAULT_MODEL_ID)) {
-    return DEFAULT_MODEL_ID;
-  }
-
-  return catalog[0]?.id ?? DEFAULT_MODEL_ID;
-}
-
-function createId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function loadSettings(): Partial<{
-  modelId: string;
-  temperature: number;
-  topK: number;
-  maxOutputTokens: number;
-  apiKey: string;
-}> | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    return JSON.parse(raw) as Partial<{
-      modelId: string;
-      temperature: number;
-      topK: number;
-      maxOutputTokens: number;
-      apiKey: string;
-    }>;
-  } catch {
-    return null;
-  }
-}
-
-function saveSettings(settings: {
-  modelId: string;
-  temperature: number;
-  topK: number;
-  maxOutputTokens: number;
-  apiKey: string;
-}): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-}
-
-function createThread(): UiThread {
-  const now = new Date().toISOString();
-  return {
-    id: createId(),
-    title: DEFAULT_THREAD_TITLE,
-    createdAt: now,
-    updatedAt: now,
-    messages: [],
-  };
-}
-
-function deriveThreadTitle(messages: UiMessage[]): string {
-  const firstUserMessage = messages.find((message) => message.role === "user" && message.content.trim().length > 0);
-  if (firstUserMessage) {
-    return summarizeText(firstUserMessage.content, MAX_THREAD_TITLE_LENGTH);
-  }
-
-  const firstAnyMessage = messages.find((message) => message.content.trim().length > 0);
-  if (firstAnyMessage) {
-    return summarizeText(firstAnyMessage.content, MAX_THREAD_TITLE_LENGTH);
-  }
-
-  return DEFAULT_THREAD_TITLE;
-}
-
-function summarizeText(text: string, maxLength = 90): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return "";
-  }
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  if (maxLength <= 3) {
-    return normalized.slice(0, maxLength);
-  }
-  return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+function formatUsdFromCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
 function formatThreadTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Unknown time";
+    return "Unknown";
   }
+
   return date.toLocaleString([], {
     month: "short",
     day: "numeric",
@@ -824,406 +1142,74 @@ function formatThreadTimestamp(value: string): string {
   });
 }
 
-function sortThreads(threads: UiThread[]): UiThread[] {
-  return [...threads].sort((a, b) => toTimestamp(b.updatedAt) - toTimestamp(a.updatedAt));
-}
-
-function toTimestamp(value: string): number {
-  const timestamp = Date.parse(value);
-  if (Number.isFinite(timestamp)) {
-    return timestamp;
-  }
-  return 0;
-}
-
-function loadThreads(): ThreadStore | null {
-  if (typeof window === "undefined") {
-    return null;
+function buildVisibleModelCatalog(catalog: ModelSpec[], showAllModels: boolean, selectedModelId: string): ModelSpec[] {
+  if (showAllModels) {
+    return catalog;
   }
 
-  try {
-    const raw = window.localStorage.getItem(THREADS_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed) || !Array.isArray(parsed.threads)) {
-      return null;
-    }
-
-    const threads = parsed.threads.map(parseThread).filter((thread): thread is UiThread => thread !== null);
-    if (threads.length === 0) {
-      return null;
-    }
-
-    const activeThreadId =
-      typeof parsed.activeThreadId === "string" && threads.some((thread) => thread.id === parsed.activeThreadId)
-        ? parsed.activeThreadId
-        : threads[0].id;
-
-    return {
-      activeThreadId,
-      threads: sortThreads(threads),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseThread(value: unknown): UiThread | null {
-  if (!isRecord(value) || typeof value.id !== "string") {
-    return null;
-  }
-
-  const messages = Array.isArray(value.messages)
-    ? value.messages.map(parseMessage).filter((message): message is UiMessage => message !== null)
-    : [];
-
-  const titleSource = typeof value.title === "string" ? value.title : deriveThreadTitle(messages);
-  const title = summarizeText(titleSource, MAX_THREAD_TITLE_LENGTH) || DEFAULT_THREAD_TITLE;
-
-  const createdAt = typeof value.createdAt === "string" ? value.createdAt : new Date().toISOString();
-  const updatedAt = typeof value.updatedAt === "string" ? value.updatedAt : createdAt;
-
-  return {
-    id: value.id,
-    title,
-    createdAt,
-    updatedAt,
-    messages,
-  };
-}
-
-function parseMessage(value: unknown): UiMessage | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const role = value.role;
-  if (!isUiRole(role)) {
-    return null;
-  }
-
-  if (typeof value.id !== "string" || typeof value.content !== "string" || typeof value.createdAt !== "string") {
-    return null;
-  }
-
-  const message: UiMessage = {
-    id: value.id,
-    role,
-    content: value.content,
-    createdAt: value.createdAt,
-  };
-
-  if (typeof value.estimatedTokens === "number") {
-    message.estimatedTokens = value.estimatedTokens;
-  }
-  if (typeof value.modelId === "string") {
-    message.modelId = value.modelId;
-  }
-  if (typeof value.provider === "string") {
-    message.provider = value.provider;
-  }
-  if (Array.isArray(value.citations)) {
-    message.citations = value.citations.map(parseCitation).filter((citation): citation is Citation => citation !== null);
-  }
-
-  const usage = parseUsageMetrics(value.usage);
-  if (usage) {
-    message.usage = usage;
-  }
-
-  const cost = parseCostMetrics(value.cost);
-  if (cost) {
-    message.cost = cost;
-  }
-
-  return message;
-}
-
-function saveThreads(store: ThreadStore): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(
-    THREADS_STORAGE_KEY,
-    JSON.stringify({
-      activeThreadId: store.activeThreadId,
-      threads: sortThreads(store.threads),
-    })
-  );
-}
-
-function isUiRole(value: unknown): value is UiRole {
-  return value === "assistant" || value === "user";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function parseCitation(value: unknown): Citation | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  if (
-    typeof value.index !== "number" ||
-    typeof value.title !== "string" ||
-    typeof value.url !== "string" ||
-    typeof value.chunkId !== "string" ||
-    (value.section !== null && typeof value.section !== "string") ||
-    typeof value.score !== "number" ||
-    typeof value.snippet !== "string"
-  ) {
-    return null;
-  }
-  return {
-    index: value.index,
-    title: value.title,
-    url: value.url,
-    chunkId: value.chunkId,
-    section: value.section,
-    score: value.score,
-    snippet: value.snippet,
-  };
-}
-
-function parseUsageMetrics(value: unknown): UsageMetrics | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  if (
-    typeof value.inputTokens !== "number" ||
-    typeof value.outputTokens !== "number" ||
-    typeof value.totalTokens !== "number"
-  ) {
-    return null;
-  }
-  return {
-    inputTokens: value.inputTokens,
-    outputTokens: value.outputTokens,
-    totalTokens: value.totalTokens,
-  };
-}
-
-function parseCostMetrics(value: unknown): CostMetrics | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  if (
-    typeof value.inputCostUsd !== "number" ||
-    typeof value.outputCostUsd !== "number" ||
-    typeof value.totalCostUsd !== "number" ||
-    typeof value.inputRateUsdPerMillion !== "number" ||
-    typeof value.outputRateUsdPerMillion !== "number" ||
-    (value.pricingTier !== "standard" && value.pricingTier !== "long-context" && value.pricingTier !== "unknown") ||
-    typeof value.hasPricing !== "boolean"
-  ) {
-    return null;
-  }
-  return {
-    inputCostUsd: value.inputCostUsd,
-    outputCostUsd: value.outputCostUsd,
-    totalCostUsd: value.totalCostUsd,
-    inputRateUsdPerMillion: value.inputRateUsdPerMillion,
-    outputRateUsdPerMillion: value.outputRateUsdPerMillion,
-    pricingTier: value.pricingTier,
-    hasPricing: value.hasPricing,
-  };
-}
-
-type MarkdownBlock =
-  | {
-      type: "paragraph";
-      text: string;
-    }
-  | {
-      type: "ul" | "ol";
-      items: string[];
-    };
-
-function renderAssistantMarkdown(content: string): ReactNode {
-  const blocks = parseMarkdownBlocks(content);
-  if (blocks.length === 0) {
-    return content;
-  }
-
-  return blocks.map((block, blockIndex) => {
-    if (block.type === "paragraph") {
-      return <p key={`p-${blockIndex}`}>{renderInlineMarkdown(block.text, `p-${blockIndex}`)}</p>;
-    }
-
-    if (block.type === "ul") {
-      return (
-        <ul key={`ul-${blockIndex}`}>
-          {block.items.map((item, itemIndex) => (
-            <li key={`ul-${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item, `ul-${blockIndex}-${itemIndex}`)}</li>
-          ))}
-        </ul>
-      );
-    }
-
-    return (
-      <ol key={`ol-${blockIndex}`}>
-        {block.items.map((item, itemIndex) => (
-          <li key={`ol-${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item, `ol-${blockIndex}-${itemIndex}`)}</li>
-        ))}
-      </ol>
-    );
-  });
-}
-
-function parseMarkdownBlocks(content: string): MarkdownBlock[] {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const blocks: MarkdownBlock[] = [];
-
-  let paragraphLines: string[] = [];
-  let listType: "ul" | "ol" | null = null;
-  let listItems: string[] = [];
-
-  const flushParagraph = () => {
-    if (paragraphLines.length === 0) {
-      return;
-    }
-
-    const text = paragraphLines.join(" ").replace(/\s+/g, " ").trim();
-    if (text.length > 0) {
-      blocks.push({ type: "paragraph", text });
-    }
-    paragraphLines = [];
-  };
-
-  const flushList = () => {
-    if (!listType || listItems.length === 0) {
-      listType = null;
-      listItems = [];
-      return;
-    }
-
-    blocks.push({ type: listType, items: listItems });
-    listType = null;
-    listItems = [];
-  };
-
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    const unorderedMatch = trimmed.match(/^[-*+]\s+(.*)$/);
-    const orderedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
-
-    if (trimmed.length === 0) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    if (unorderedMatch) {
-      flushParagraph();
-      if (listType && listType !== "ul") {
-        flushList();
-      }
-      listType = "ul";
-      listItems.push(unorderedMatch[1]);
-      continue;
-    }
-
-    if (orderedMatch) {
-      flushParagraph();
-      if (listType && listType !== "ol") {
-        flushList();
-      }
-      listType = "ol";
-      listItems.push(orderedMatch[1]);
-      continue;
-    }
-
-    if (listType && /^\s{2,}\S/.test(rawLine) && listItems.length > 0) {
-      const index = listItems.length - 1;
-      listItems[index] = `${listItems[index]} ${trimmed}`;
-      continue;
-    }
-
-    if (listType) {
-      flushList();
-    }
-
-    paragraphLines.push(trimmed);
-  }
-
-  flushParagraph();
-  flushList();
-
-  return blocks;
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const pattern =
-    /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*\n]+)\*\*|`([^`\n]+)`|\*([^\s*](?:[^*]*[^\s*])?)\*|(https?:\/\/[^\s<>()]+[^\s<>().,!?;:]))/g;
-  let cursor = 0;
-  let match = pattern.exec(text);
-  let index = 0;
-
-  while (match) {
-    if (match.index > cursor) {
-      parts.push(text.slice(cursor, match.index));
-    }
-
-    if (match[3]) {
-      const safeHref = toSafeHref(match[3]);
-      const label = match[2] ?? match[1];
-
-      if (safeHref) {
-        parts.push(
-          <a key={`${keyPrefix}-link-${index}`} href={safeHref} target="_blank" rel="noreferrer">
-            {label}
-          </a>
-        );
-      } else {
-        parts.push(match[1]);
-      }
-    } else if (match[4]) {
-      parts.push(<strong key={`${keyPrefix}-strong-${index}`}>{match[4]}</strong>);
-    } else if (match[5]) {
-      parts.push(<code key={`${keyPrefix}-code-${index}`}>{match[5]}</code>);
-    } else if (match[6]) {
-      parts.push(<em key={`${keyPrefix}-em-${index}`}>{match[6]}</em>);
-    } else if (match[7]) {
-      const safeHref = toSafeHref(match[7]);
-      if (safeHref) {
-        parts.push(
-          <a key={`${keyPrefix}-url-${index}`} href={safeHref} target="_blank" rel="noreferrer">
-            {match[7]}
-          </a>
-        );
-      } else {
-        parts.push(match[7]);
-      }
+  const miniMenuLimitPerProvider = 3;
+  const modelsByProvider = new Map<ModelSpec["provider"], ModelSpec[]>();
+  for (const model of catalog) {
+    const providerModels = modelsByProvider.get(model.provider);
+    if (providerModels) {
+      providerModels.push(model);
     } else {
-      parts.push(match[1]);
+      modelsByProvider.set(model.provider, [model]);
     }
-
-    cursor = pattern.lastIndex;
-    index += 1;
-    match = pattern.exec(text);
   }
 
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor));
+  const filtered: ModelSpec[] = [];
+  for (const providerModels of modelsByProvider.values()) {
+    const rankedModels = [...providerModels].sort((left, right) => compareModelPopularity(right, left));
+    filtered.push(...rankedModels.slice(0, miniMenuLimitPerProvider));
   }
 
-  return parts;
+  if (!filtered.some((model) => model.id === selectedModelId)) {
+    const selectedModel = catalog.find((model) => model.id === selectedModelId);
+    if (selectedModel) {
+      return [selectedModel, ...filtered];
+    }
+  }
+
+  return filtered;
 }
 
-function toSafeHref(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      return parsed.toString();
-    }
-    return null;
-  } catch {
-    return null;
+function compareModelPopularity(left: ModelSpec, right: ModelSpec): number {
+  const scoreDiff = scoreModelPopularity(left.apiModel) - scoreModelPopularity(right.apiModel);
+  if (scoreDiff !== 0) {
+    return scoreDiff;
   }
+
+  return left.apiModel.localeCompare(right.apiModel, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function scoreModelPopularity(apiModel: string): number {
+  const normalized = apiModel.toLowerCase();
+  let score = 0;
+
+  if (!/-\d{4}-\d{2}-\d{2}$/.test(normalized) && !/-\d{8}$/.test(normalized)) {
+    score += 18;
+  }
+
+  if (!/(preview|beta|experimental|exp|snapshot)/.test(normalized)) {
+    score += 10;
+  }
+
+  if (/(mini|sonnet|flash)/.test(normalized)) {
+    score += 12;
+  }
+
+  if (/(pro|opus)/.test(normalized)) {
+    score += 6;
+  }
+
+  if (/haiku/.test(normalized)) {
+    score += 4;
+  }
+
+  if (/nano/.test(normalized)) {
+    score -= 8;
+  }
+
+  return score;
 }

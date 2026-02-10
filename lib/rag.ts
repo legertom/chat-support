@@ -17,6 +17,7 @@ export function buildRagSystemPrompt(retrieval: RetrievalResult[]): string {
       return [
         `[${idx + 1}]`,
         `Title: ${item.chunk.title}`,
+        `Source: ${item.chunk.source ?? "unknown"}`,
         `URL: ${item.chunk.url}`,
         `Section: ${item.chunk.section ?? "(not provided)"}`,
         `Heading path: ${headingPath}`,
@@ -31,7 +32,7 @@ export function buildRagSystemPrompt(retrieval: RetrievalResult[]): string {
     "If the context is incomplete, say what is missing and suggest the closest supported next step.",
     "Never invent product behavior or policy.",
     "Cite supporting excerpts inline using [1], [2], etc.",
-    "End each answer with a short 'Sources' section listing the citation numbers and URLs.",
+    "Do not add a trailing 'Sources' section. The UI already renders source links separately.",
     "",
     "Support article context:",
     contextSections || "No context found.",

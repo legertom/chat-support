@@ -194,6 +194,8 @@ def _build_chunk(article: Dict[str, Any], section: Dict[str, Any], text: str, in
         "updated_at": article.get("updated_at"),
         "breadcrumbs": article.get("breadcrumbs", []),
         "tags": article.get("tags", []),
+        "source": article.get("source"),
+        "source_host": article.get("source_host"),
         "scraped_at": article.get("scraped_at"),
         "content_hash": article.get("content_hash"),
     }

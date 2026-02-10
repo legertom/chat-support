@@ -3,6 +3,7 @@ import os
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from .cache import Cache
 from .extractor import extract_article
@@ -47,9 +48,21 @@ async def scrape_urls(urls: List[str], config: Dict[str, Any], logger, resume: b
     cache = Cache(config["paths"]["cache_path"])
     await cache.open()
     try:
-        robots_parser = None
+        robots_parsers_by_host: Dict[str, Any] = {}
         if config.get("obey_robots", True):
-            robots_parser = await load_robots(config["base_url"], config["user_agent"], logger=logger)
+            robots_origins: Dict[str, str] = {}
+            for url in urls:
+                parsed = urlparse(url)
+                if parsed.scheme and parsed.netloc:
+                    robots_origins[parsed.netloc.lower()] = f"{parsed.scheme}://{parsed.netloc}"
+            if not robots_origins:
+                base_url = config.get("base_url")
+                if isinstance(base_url, str) and base_url:
+                    parsed_base = urlparse(base_url)
+                    if parsed_base.scheme and parsed_base.netloc:
+                        robots_origins[parsed_base.netloc.lower()] = f"{parsed_base.scheme}://{parsed_base.netloc}"
+            for host, origin in robots_origins.items():
+                robots_parsers_by_host[host] = await load_robots(origin, config["user_agent"], logger=logger)
 
         limiter = RateLimiter(config.get("rate_limit_rps"))
         concurrency = config.get("concurrency", 4)
@@ -70,10 +83,18 @@ async def scrape_urls(urls: List[str], config: Dict[str, Any], logger, resume: b
 
             async def process(url: str):
                 async with semaphore:
-                    if robots_parser and not allowed_by_robots(robots_parser, url, config["user_agent"]):
-                        stats.skipped += 1
-                        await cache.upsert(url, status="blocked", last_scraped=now_iso())
-                        return
+                    if config.get("obey_robots", True):
+                        url_parts = urlparse(url)
+                        host = url_parts.netloc.lower()
+                        parser = robots_parsers_by_host.get(host)
+                        if parser is None and host:
+                            scheme = url_parts.scheme or "https"
+                            parser = await load_robots(f"{scheme}://{host}", config["user_agent"], logger=logger)
+                            robots_parsers_by_host[host] = parser
+                        if parser and not allowed_by_robots(parser, url, config["user_agent"]):
+                            stats.skipped += 1
+                            await cache.upsert(url, status="blocked", last_scraped=now_iso())
+                            return
                     cache_entry = await cache.get(url)
                     cached_doc_id = cache_entry.get("doc_id") if cache_entry else None
                     has_cached_article = bool(cached_doc_id and cached_doc_id in existing_articles)

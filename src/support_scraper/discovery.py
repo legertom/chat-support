@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from .config import get_sources
 from .fetcher import FetchError, PlaywrightFetcher
 from .logger import log_event
 from .rate_limiter import RateLimiter
@@ -93,9 +94,15 @@ def extract_links(html: str, base_url: str) -> List[str]:
     return links
 
 
-async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
-    base_url = config["base_url"]
-    patterns = config["article_discovery"]["article_url_patterns"]
+async def _discover_urls_for_source(
+    config: Dict[str, Any],
+    logger,
+    source_name: str,
+    source_cfg: Dict[str, Any],
+) -> List[str]:
+    base_url = source_cfg["base_url"]
+    discovery_cfg = source_cfg.get("article_discovery", config["article_discovery"])
+    patterns = discovery_cfg["article_url_patterns"]
     discovered: Set[str] = set()
     seen: Set[str] = set()
 
@@ -119,7 +126,7 @@ async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
             if pw_fetcher:
                 if not html:
                     return await fetch_text_playwright(pw_fetcher, url, logger)
-                if "/s/articles/" not in html and "/s/article/" not in html:
+                if patterns and not any(pattern in html for pattern in patterns):
                     rendered = await fetch_text_playwright(pw_fetcher, url, logger)
                     if rendered:
                         return rendered
@@ -154,12 +161,22 @@ async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
                 normalized_child = normalize_url(urljoin(base_url, child_sitemap))
                 if normalized_child not in sitemap_seen:
                     sitemap_queue.append(normalized_child)
-        log_event(logger, "discovery_sitemap", url=sitemap_candidates[0], count=len(discovered), sitemaps=len(sitemap_seen))
+        log_event(
+            logger,
+            "discovery_sitemap",
+            source=source_name,
+            url=sitemap_candidates[0],
+            count=len(discovered),
+            sitemaps=len(sitemap_seen),
+        )
 
         # 2) Category crawl
         queue: List[str] = []
-        for path in config["article_discovery"].get("category_paths", []):
+        for path in discovery_cfg.get("category_paths", []):
             queue.append(normalize_url(urljoin(base_url, path)))
+        if not queue:
+            queue.append(normalize_url(base_url))
+        category_roots = list(dict.fromkeys(queue))
         max_pages = 200
         while queue and len(seen) < max_pages:
             current = queue.pop(0)
@@ -177,12 +194,12 @@ async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
                     discovered.add(normalize_url(link))
                 else:
                     if link not in seen and link not in queue and link.startswith(base_url):
-                        if "/s/" in link:
+                        if any(link.startswith(root) for root in category_roots):
                             queue.append(link)
-        log_event(logger, "discovery_category", pages=len(seen), count=len(discovered))
+        log_event(logger, "discovery_category", source=source_name, pages=len(seen), count=len(discovered))
 
         # 3) Search endpoint (optional)
-        search_cfg = config["article_discovery"].get("search", {})
+        search_cfg = discovery_cfg.get("search", {})
         if search_cfg.get("enabled") and search_cfg.get("endpoint"):
             page = search_cfg.get("page_start", 0)
             page_size = search_cfg.get("page_size", 50)
@@ -213,7 +230,7 @@ async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
                 if len(urls) < page_size:
                     break
                 page += 1
-            log_event(logger, "discovery_search", count=len(discovered))
+            log_event(logger, "discovery_search", source=source_name, count=len(discovered))
 
         # 4) Fallback crawl
         if len(discovered) < 50:
@@ -236,9 +253,18 @@ async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
                     else:
                         if link not in fallback_seen and link not in fallback_queue:
                             fallback_queue.append(link)
-            log_event(logger, "discovery_fallback", pages=len(fallback_seen), count=len(discovered))
+            log_event(logger, "discovery_fallback", source=source_name, pages=len(fallback_seen), count=len(discovered))
 
     return sorted(discovered)
+
+
+async def discover_urls(config: Dict[str, Any], logger) -> List[str]:
+    merged: Set[str] = set()
+    for source_name, source_cfg in get_sources(config, enabled_only=True):
+        source_urls = await _discover_urls_for_source(config, logger, source_name, source_cfg)
+        merged.update(source_urls)
+        log_event(logger, "discovery_source_complete", source=source_name, count=len(source_urls))
+    return sorted(merged)
 
 
 def write_urls(path: str, urls: List[str]) -> None:

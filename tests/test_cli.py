@@ -15,6 +15,16 @@ def test_apply_overrides_accepts_subcommand_without_common_flags():
     assert updated["concurrency"] == config["concurrency"]
 
 
+def test_apply_overrides_sources_selects_expected_source():
+    args = argparse.Namespace(sources="dev")
+    config = load_config()
+
+    updated = _apply_overrides(config, args)
+
+    assert updated["sources"]["support"]["enabled"] is False
+    assert updated["sources"]["dev"]["enabled"] is True
+
+
 @pytest.mark.parametrize(
     "argv",
     [

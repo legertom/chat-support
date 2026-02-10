@@ -8,6 +8,43 @@ save_raw_html: false
 save_screenshots: false
 max_urls: null
 
+# Multi-source controls. Toggle each source on/off or use CLI --sources=support,dev.
+sources:
+  support:
+    enabled: true
+    base_url: "https://support.clever.com"
+    article_discovery:
+      article_url_patterns:
+        - "/s/articles/"
+        - "/s/article/"
+        - "/article/"
+      category_paths:
+        - "/s/"
+      search:
+        enabled: false
+        endpoint: null
+        query_param: "q"
+        page_param: "page"
+        page_start: 0
+        page_size: 50
+  dev:
+    enabled: false
+    base_url: "https://dev.clever.com"
+    article_discovery:
+      article_url_patterns:
+        - "/docs/"
+        - "/reference/"
+        - "/api/"
+      category_paths:
+        - "/docs/"
+      search:
+        enabled: false
+        endpoint: null
+        query_param: "q"
+        page_param: "page"
+        page_start: 0
+        page_size: 50
+
 paths:
   data_dir: "data"
   urls_path: "data/urls.json"
@@ -41,6 +78,7 @@ playwright:
     username_env: "SUPPORT_USER"
     password_env: "SUPPORT_PASS"
 
+# Legacy fallback discovery config (used when per-source article_discovery is omitted).
 article_discovery:
   article_url_patterns:
     - "/s/articles/"

@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { getChunkStats } from "@/lib/retrieval";
-import { getServerModelCatalog } from "@/lib/server-models";
+import { jsonError } from "@/lib/http";
+import { requireDbUser } from "@/lib/server-auth";
+import { getStatsModelCatalogForUser } from "@/lib/model-catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const user = await requireDbUser();
     const stats = await getChunkStats();
-    const allowClientApiKeyOverride = process.env.ALLOW_CLIENT_API_KEY_OVERRIDE === "true";
-    const modelCatalog = getServerModelCatalog({ allowClientApiKeyOverride });
+    const modelCatalog = await getStatsModelCatalogForUser(user.id);
 
     return NextResponse.json({
       dataset: stats,
@@ -17,7 +19,6 @@ export async function GET() {
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load dataset stats";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return jsonError(error);
   }
 }

@@ -11,6 +11,7 @@ USE_PLAYWRIGHT="${USE_PLAYWRIGHT:-true}"
 CONCURRENCY="${CONCURRENCY:-2}"
 RATE_LIMIT="${RATE_LIMIT:-1.0}"
 MAX_URLS="${MAX_URLS:-}"
+SOURCES="${SOURCES:-support}"
 
 if [[ ! -d ".venv" ]]; then
   echo "Missing .venv. Run: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
@@ -27,7 +28,7 @@ source ".venv/bin/activate"
 export PYTHONPATH=src
 
 run_discover() {
-  local cmd=(python -m support_scraper discover --config "$CONFIG_FILE" "--use-playwright=$USE_PLAYWRIGHT")
+  local cmd=(python -m support_scraper discover --config "$CONFIG_FILE" "--use-playwright=$USE_PLAYWRIGHT" "--sources=$SOURCES")
   if [[ -n "$MAX_URLS" ]]; then
     cmd+=("--max-urls=$MAX_URLS")
   fi
@@ -35,7 +36,7 @@ run_discover() {
 }
 
 run_scrape() {
-  local cmd=(python -m support_scraper scrape --config "$CONFIG_FILE" "--use-playwright=$USE_PLAYWRIGHT" "--concurrency=$CONCURRENCY" "--rate-limit=$RATE_LIMIT")
+  local cmd=(python -m support_scraper scrape --config "$CONFIG_FILE" "--use-playwright=$USE_PLAYWRIGHT" "--concurrency=$CONCURRENCY" "--rate-limit=$RATE_LIMIT" "--sources=$SOURCES")
   if [[ -n "$MAX_URLS" ]]; then
     cmd+=("--max-urls=$MAX_URLS")
   fi
@@ -79,7 +80,7 @@ case "$MODE" in
     ;;
   *)
     echo "Usage: ./run_scraper.sh [all|resume|discover|scrape|chunk|validate]"
-    echo "Env knobs: SCRAPER_CONFIG, USE_PLAYWRIGHT, CONCURRENCY, RATE_LIMIT, MAX_URLS"
+    echo "Env knobs: SCRAPER_CONFIG, SOURCES, USE_PLAYWRIGHT, CONCURRENCY, RATE_LIMIT, MAX_URLS"
     exit 1
     ;;
 esac

@@ -1,19 +1,19 @@
 {
-  "started_at": "2026-02-08T02:25:24.076279+00:00",
-  "finished_at": "2026-02-08T02:37:22.380311+00:00",
-  "duration_seconds": 718.304032,
-  "total": 499,
-  "success": 494,
-  "failed": 5,
+  "started_at": "2026-02-09T17:40:12.032132+00:00",
+  "finished_at": "2026-02-09T17:41:11.285433+00:00",
+  "duration_seconds": 59.253301,
+  "total": 83,
+  "success": 81,
+  "failed": 2,
   "skipped": 0,
   "updated": 0,
   "unchanged": 0,
-  "auth_required": 0,
-  "errors": 5,
-  "articles_written": 494,
-  "chunks_written": 1487,
+  "auth_required": 1,
+  "errors": 2,
+  "articles_written": 575,
+  "chunks_written": 1692,
   "chunk_tokens": {
-    "avg": 425.4700739744452,
+    "avg": 425.72399527186764,
     "max": 4568
   }
 }

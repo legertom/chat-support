@@ -1,4 +1,4 @@
-export type ChatRole = "user" | "assistant";
+export type ChatRole = "user" | "assistant" | "system";
 
 export interface ChatMessageInput {
   role: ChatRole;
@@ -21,14 +21,42 @@ export interface CostMetrics {
   hasPricing: boolean;
 }
 
+export interface ChunkIndexDiagnostics {
+  warmOnRequestStart: boolean;
+  buildCount: number;
+  lastBuildMs: number | null;
+  builtAt: string | null;
+}
+
+export interface DeploymentDiagnostics {
+  platform: string;
+  region: string | null;
+  environment: string | null;
+  nodeEnv: string | null;
+}
+
+export interface RequestDiagnostics {
+  totalMs: number;
+  parseMs: number;
+  retrievalMs: number;
+  ragPromptMs: number;
+  providerMs: number;
+  responseBuildMs: number;
+  coldStartLikely: boolean;
+  chunkIndex: ChunkIndexDiagnostics;
+  deployment: DeploymentDiagnostics;
+}
+
 export interface Citation {
   index: number;
   title: string;
   url: string;
   chunkId: string;
+  docId?: string | null;
   section: string | null;
   score: number;
   snippet: string;
+  multiplierApplied?: number;
 }
 
 export interface AssistantTurn {
@@ -39,4 +67,5 @@ export interface AssistantTurn {
   modelId: string;
   provider: string;
   citations: Citation[];
+  diagnostics?: RequestDiagnostics;
 }

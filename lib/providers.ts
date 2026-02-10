@@ -1,4 +1,4 @@
-import { findModelSpec } from "./models";
+import { findModelSpec, parseModelId } from "./models";
 import { estimateTokens } from "./tokens";
 import type { ChatMessageInput, UsageMetrics } from "./types";
 
@@ -21,23 +21,28 @@ export interface ProviderCallResult {
 
 export async function callProvider(params: ProviderCallParams): Promise<ProviderCallResult> {
   const modelSpec = findModelSpec(params.modelId);
-  if (!modelSpec) {
-    throw new Error(`Unsupported model: ${params.modelId}`);
+  const parsedModel = parseModelId(params.modelId);
+
+  const provider = modelSpec?.provider ?? parsedModel?.provider;
+  const apiModel = modelSpec?.apiModel ?? parsedModel?.apiModel;
+
+  if (!provider || !apiModel) {
+    throw new Error(`Unsupported model ID format: ${params.modelId}`);
   }
 
-  if (modelSpec.provider === "openai") {
-    return callOpenAi({ ...params, apiModel: modelSpec.apiModel, provider: modelSpec.provider });
+  if (provider === "openai") {
+    return callOpenAi({ ...params, apiModel, provider });
   }
 
-  if (modelSpec.provider === "anthropic") {
-    return callAnthropic({ ...params, apiModel: modelSpec.apiModel, provider: modelSpec.provider });
+  if (provider === "anthropic") {
+    return callAnthropic({ ...params, apiModel, provider });
   }
 
-  if (modelSpec.provider === "gemini") {
-    return callGemini({ ...params, apiModel: modelSpec.apiModel, provider: modelSpec.provider });
+  if (provider === "gemini") {
+    return callGemini({ ...params, apiModel, provider });
   }
 
-  throw new Error(`No adapter implemented for provider: ${modelSpec.provider as string}`);
+  throw new Error(`No adapter implemented for provider: ${provider as string}`);
 }
 
 async function callOpenAi(
@@ -194,14 +199,13 @@ async function callGemini(
     ""
   );
 
-  const endpoint = `${baseUrl}/models/${encodeURIComponent(params.apiModel)}:generateContent?key=${encodeURIComponent(
-    apiKey
-  )}`;
+  const endpoint = `${baseUrl}/models/${encodeURIComponent(params.apiModel)}:generateContent`;
 
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify({
       systemInstruction: {

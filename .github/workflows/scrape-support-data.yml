@@ -1,0 +1,153 @@
+name: Scrape Support Data
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      full_rescrape:
+        description: "Rebuild artifacts from scratch (ignore resume cache)"
+        required: true
+        type: boolean
+        default: false
+      config_file:
+        description: "Config file used for the scrape run"
+        required: true
+        type: choice
+        default: "config.auth.yaml"
+        options:
+          - config.auth.yaml
+          - config.public.yaml
+          - config.yaml
+      max_urls:
+        description: "Optional max URL limit for ad-hoc runs"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: support-scraper-data
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PYTHONPATH: src
+      SUPPORT_USER: ${{ secrets.SUPPORT_USER }}
+      SUPPORT_PASS: ${{ secrets.SUPPORT_PASS }}
+      INPUT_FULL_RESCAPE: ${{ github.event.inputs.full_rescrape || 'false' }}
+      INPUT_CONFIG_FILE: ${{ github.event.inputs.config_file || '' }}
+      INPUT_MAX_URLS: ${{ github.event.inputs.max_urls || '' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Resolve run settings
+        id: settings
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CONFIG_FILE="config.auth.yaml"
+          if [[ -n "${INPUT_CONFIG_FILE}" ]]; then
+            CONFIG_FILE="${INPUT_CONFIG_FILE}"
+          fi
+
+          RESUME_ENABLED="true"
+          if [[ "${INPUT_FULL_RESCAPE}" == "true" ]]; then
+            RESUME_ENABLED="false"
+          fi
+
+          {
+            echo "config_file=${CONFIG_FILE}"
+            echo "resume_enabled=${RESUME_ENABLED}"
+            echo "max_urls=${INPUT_MAX_URLS}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate auth secrets
+        if: ${{ steps.settings.outputs.config_file == 'config.auth.yaml' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPPORT_USER}" || -z "${SUPPORT_PASS}" ]]; then
+            echo "::error::Set SUPPORT_USER and SUPPORT_PASS repository secrets to run config.auth.yaml."
+            exit 1
+          fi
+
+      - name: Full reset for manual full rescrape
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_rescrape == 'true' }}
+        run: |
+          rm -f data/cache.sqlite \
+            data/articles.jsonl \
+            data/chunks.jsonl \
+            data/urls.json \
+            data/errors.jsonl \
+            data/manifest.json
+
+      - name: Run scraper pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmd=(python -m support_scraper run-all --config "${{ steps.settings.outputs.config_file }}")
+          if [[ "${{ steps.settings.outputs.resume_enabled }}" == "true" ]]; then
+            cmd+=(--resume)
+          fi
+          if [[ -n "${{ steps.settings.outputs.max_urls }}" ]]; then
+            cmd+=("--max-urls=${{ steps.settings.outputs.max_urls }}")
+          fi
+
+          "${cmd[@]}"
+
+      - name: Validate outputs
+        run: |
+          python -m support_scraper validate --config "${{ steps.settings.outputs.config_file }}"
+
+      - name: Commit updated data artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          FILES=(
+            data/articles.jsonl
+            data/chunks.jsonl
+            data/urls.json
+            data/manifest.json
+            data/errors.jsonl
+            data/cache.sqlite
+          )
+
+          for file in "${FILES[@]}"; do
+            if [[ -f "${file}" ]]; then
+              git add "${file}"
+            fi
+          done
+
+          if git diff --cached --quiet; then
+            echo "No artifact changes to commit."
+            exit 0
+          fi
+
+          TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          git commit -m "chore(data): refresh support scrape (${TIMESTAMP})"
+          git push

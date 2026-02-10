@@ -1,6 +1,6 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 from dateutil import parser as date_parser
@@ -16,6 +16,34 @@ def extract_salesforce_id(html: str) -> Optional[str]:
     if match:
         return match.group(0)
     return None
+
+
+def _source_key_for_url(url: str, config: Dict[str, Any]) -> str:
+    host = urlparse(url).netloc.lower()
+    sources_cfg = config.get("sources", {})
+    if isinstance(sources_cfg, dict):
+        for source_name, source_cfg in sources_cfg.items():
+            if not isinstance(source_name, str) or not isinstance(source_cfg, dict):
+                continue
+            base_url = source_cfg.get("base_url")
+            if not isinstance(base_url, str):
+                continue
+            if urlparse(base_url).netloc.lower() == host:
+                return source_name
+    if host.endswith(".clever.com"):
+        return host.split(".", 1)[0]
+    return host or "unknown"
+
+
+def _source_doc_prefix(host: str) -> str:
+    value = host.lower()
+    if value.startswith("www."):
+        value = value[4:]
+    if value.endswith(".com"):
+        value = value[: -len(".com")]
+    value = value.replace(".", "-")
+    value = re.sub(r"[^a-z0-9-]+", "-", value).strip("-")
+    return value or "source"
 
 
 def _text_or_none(tag: Optional[Tag]) -> Optional[str]:
@@ -124,9 +152,11 @@ def _remove_unwanted(body: Tag, remove_selectors: List[str]) -> None:
         for tag in body.select(selector):
             tag.decompose()
     for tag in body.find_all(True):
-        if tag.get("aria-hidden") == "true":
+        attrs = tag.attrs if isinstance(getattr(tag, "attrs", None), dict) else {}
+        if attrs.get("aria-hidden") == "true":
             tag.decompose()
-        style = tag.get("style", "")
+            continue
+        style = attrs.get("style", "")
         if "display:none" in style.replace(" ", "").lower():
             tag.decompose()
 
@@ -202,6 +232,9 @@ def extract_article(html: str, url: str, config: Dict[str, Any]) -> Dict[str, An
     soup = BeautifulSoup(html, "lxml")
     canonical_tag = soup.find("link", rel="canonical")
     canonical_url = normalize_url(canonical_tag["href"], url) if canonical_tag and canonical_tag.get("href") else normalize_url(url)
+    source_host = urlparse(canonical_url).netloc.lower() or urlparse(url).netloc.lower()
+    source_key = _source_key_for_url(canonical_url or url, config)
+    source_doc_prefix = _source_doc_prefix(source_host)
     title = _find_title(soup) or ""
     updated_at, published_at = _extract_dates(soup)
     breadcrumbs = _extract_breadcrumbs(soup)
@@ -226,7 +259,7 @@ def extract_article(html: str, url: str, config: Dict[str, Any]) -> Dict[str, An
 
     salesforce_id = extract_salesforce_id(html)
     stable_id = salesforce_id or sha256_text(canonical_url)
-    doc_id = f"support-clever:{stable_id}"
+    doc_id = f"{source_doc_prefix}:{stable_id}"
     content_hash = sha256_text(f"{title}|{updated_at or ''}|{markdown}")
 
     return {
@@ -242,6 +275,7 @@ def extract_article(html: str, url: str, config: Dict[str, Any]) -> Dict[str, An
         "body_text": body_text,
         "attachments": attachments,
         "related_links": related_links,
-        "source": "support.clever.com",
+        "source": source_key,
+        "source_host": source_host,
         "content_hash": content_hash,
     }

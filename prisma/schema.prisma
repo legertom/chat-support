@@ -1,0 +1,363 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  member
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+enum WalletLedgerType {
+  grant
+  debit
+  refund
+  adjustment
+  reservation
+  release
+}
+
+enum ThreadVisibility {
+  org
+  private
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum IngestionCandidateStatus {
+  pending
+  approved
+  rejected
+}
+
+enum IngestionSourceType {
+  thread
+  message
+}
+
+enum ApiKeyProvider {
+  openai
+  anthropic
+  gemini
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  role          UserRole   @default(member)
+  status        UserStatus @default(active)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  lastActiveAt  DateTime?
+
+  accounts                    Account[]
+  sessions                    Session[]
+  wallet                      Wallet?
+  walletLedger                WalletLedger[]
+  sentInvites                 Invite[]             @relation("InviteCreatedBy")
+  acceptedInvites             Invite[]             @relation("InviteAcceptedBy")
+  createdThreads              Thread[]             @relation("ThreadCreatedBy")
+  threadParticipants          ThreadParticipant[]
+  messages                    Message[]
+  messageFeedback             MessageFeedback[]
+  threadFeedback              ThreadFeedback[]
+  apiKeys                     UserApiKey[]
+  createdIngestionCandidates  IngestionCandidate[] @relation("IngestionCandidateCreatedBy")
+  reviewedIngestionCandidates IngestionCandidate[] @relation("IngestionCandidateReviewedBy")
+  adminAuditLogs              AdminAuditLog[]      @relation("AdminAuditActor")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@index([expires])
+}
+
+model Invite {
+  id                 String       @id @default(cuid())
+  email              String
+  role               UserRole     @default(member)
+  initialCreditCents Int          @default(200)
+  invitedByUserId    String
+  status             InviteStatus @default(pending)
+  expiresAt          DateTime
+  acceptedByUserId   String?
+  acceptedAt         DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  invitedBy  User  @relation("InviteCreatedBy", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  acceptedBy User? @relation("InviteAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([email, status])
+  @@index([expiresAt])
+}
+
+model Wallet {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  balanceCents         Int      @default(0)
+  lifetimeGrantedCents Int      @default(0)
+  lifetimeSpentCents   Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WalletLedger {
+  id          String           @id @default(cuid())
+  userId      String
+  type        WalletLedgerType
+  amountCents Int
+  currency    String           @default("USD")
+  modelId     String?
+  provider    String?
+  threadId    String?
+  messageId   String?
+  requestId   String?
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread  Thread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([requestId])
+  @@index([threadId])
+  @@index([messageId])
+}
+
+model Thread {
+  id              String           @id @default(cuid())
+  title           String           @default("New thread")
+  visibility      ThreadVisibility @default(org)
+  createdByUserId String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  createdBy           User                 @relation("ThreadCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  participants        ThreadParticipant[]
+  messages            Message[]
+  feedback            ThreadFeedback[]
+  ingestionCandidates IngestionCandidate[]
+  walletLedger        WalletLedger[]
+
+  @@index([updatedAt(sort: Desc)])
+  @@index([createdByUserId, updatedAt(sort: Desc)])
+}
+
+model ThreadParticipant {
+  id        String   @id @default(cuid())
+  threadId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  threadId  String
+  userId    String?
+  role      MessageRole
+  content   String      @db.Text
+  modelId   String?
+  provider  String?
+  usage     Json?
+  costCents Int         @default(0)
+  createdAt DateTime    @default(now())
+
+  thread              Thread               @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user                User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  citations           MessageCitation[]
+  feedback            MessageFeedback[]
+  walletLedger        WalletLedger[]
+  ingestionCandidates IngestionCandidate[]
+
+  @@index([threadId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model MessageCitation {
+  id        String   @id @default(cuid())
+  messageId String
+  chunkId   String
+  docId     String?
+  url       String
+  title     String
+  section   String?
+  score     Float
+  snippet   String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([chunkId])
+  @@index([docId])
+}
+
+model MessageFeedback {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  rating    Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([rating])
+}
+
+model ThreadFeedback {
+  id        String   @id @default(cuid())
+  threadId  String
+  userId    String
+  rating    Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([rating])
+}
+
+model UserApiKey {
+  id           String         @id @default(cuid())
+  userId       String
+  provider     ApiKeyProvider
+  label        String
+  keyPreview   String
+  encryptedKey String         @db.Text
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@unique([userId, label])
+}
+
+model RetrievalSignal {
+  chunkId         String   @id
+  docId           String?
+  ratingCount     Int      @default(0)
+  avgRating       Float    @default(0)
+  lowRatingCount  Int      @default(0)
+  highRatingCount Int      @default(0)
+  confidence      Float    @default(0)
+  multiplier      Float    @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([docId])
+  @@index([updatedAt])
+}
+
+model IngestionCandidate {
+  id               String                   @id @default(cuid())
+  sourceType       IngestionSourceType
+  threadId         String?
+  messageId        String?
+  status           IngestionCandidateStatus @default(pending)
+  summary          String                   @db.Text
+  createdByUserId  String
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  thread     Thread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  message    Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  createdBy  User     @relation("IngestionCandidateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  reviewedBy User?    @relation("IngestionCandidateReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([threadId])
+  @@index([messageId])
+}
+
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  action      String
+  targetType  String
+  targetId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actor User @relation("AdminAuditActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([targetType, targetId])
+}
