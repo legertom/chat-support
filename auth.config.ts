@@ -47,10 +47,25 @@ if (hasBasicAuth) {
         const configuredPassword = getBasicAuthPassword();
 
         if (!configuredUsername || !configuredPassword) {
+          console.error("[auth][credentials] missing basic auth env vars", {
+            hasUsername: Boolean(configuredUsername),
+            hasPassword: Boolean(configuredPassword),
+          });
           return null;
         }
 
-        if (usernameInput !== configuredUsername || passwordInput !== configuredPassword) {
+        const usernameMatches = usernameInput === configuredUsername;
+        const passwordMatches = passwordInput === configuredPassword;
+
+        if (!usernameMatches || !passwordMatches) {
+          console.warn("[auth][credentials] credentials mismatch", {
+            usernameMatches,
+            passwordMatches,
+            usernameLength: usernameInput.length,
+            configuredUsernameLength: configuredUsername.length,
+            passwordLength: passwordInput.length,
+            configuredPasswordLength: configuredPassword.length,
+          });
           return null;
         }
 
