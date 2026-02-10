@@ -59,6 +59,10 @@ function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: s
     return first;
   }
 
+  if (first.source === "APP_DATABASE_URL") {
+    return first;
+  }
+
   const poolerCandidate = allNonEmpty.find((candidate) => {
     const hostname = getDatabaseHostname(candidate.value);
     return isNeonHostname(hostname) && isPoolerHostname(hostname);
