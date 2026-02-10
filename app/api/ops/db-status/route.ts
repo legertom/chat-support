@@ -67,6 +67,52 @@ function getDatabaseHost(value: string): string {
   }
 }
 
+function buildUrlFromPgComponents(): string | null {
+  const host = process.env.PGHOST?.trim() || process.env.POSTGRES_HOST?.trim();
+  const user = process.env.PGUSER?.trim() || process.env.POSTGRES_USER?.trim();
+  const password = process.env.PGPASSWORD?.trim() || process.env.POSTGRES_PASSWORD?.trim();
+  const database = process.env.PGDATABASE?.trim() || process.env.POSTGRES_DATABASE?.trim();
+
+  if (!host || !user || !password || !database) {
+    return null;
+  }
+
+  const url = new URL(`postgresql://${host}/${database}`);
+  url.username = user;
+  url.password = password;
+  url.searchParams.set("sslmode", "require");
+  if (host.includes("-pooler.")) {
+    url.searchParams.set("connect_timeout", "15");
+  }
+  return url.toString();
+}
+
+function buildAppUrlWithPassword(): string | null {
+  const appUrl = process.env.APP_DATABASE_URL?.trim();
+  const fallbackPassword = process.env.PGPASSWORD?.trim() || process.env.POSTGRES_PASSWORD?.trim();
+
+  if (!appUrl || !fallbackPassword) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(appUrl);
+    if (parsed.password) {
+      return null;
+    }
+    parsed.password = fallbackPassword;
+    if (!parsed.searchParams.get("sslmode")) {
+      parsed.searchParams.set("sslmode", "require");
+    }
+    if (parsed.hostname.includes("-pooler.") && !parsed.searchParams.get("connect_timeout")) {
+      parsed.searchParams.set("connect_timeout", "15");
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 async function scanCandidateUrls() {
   const candidates = [
     { source: "APP_DATABASE_URL", value: process.env.APP_DATABASE_URL },
@@ -76,6 +122,8 @@ async function scanCandidateUrls() {
     { source: "DATABASE_URL_UNPOOLED", value: process.env.DATABASE_URL_UNPOOLED },
     { source: "POSTGRES_URL_NON_POOLING", value: process.env.POSTGRES_URL_NON_POOLING },
     { source: "POSTGRES_URL_NO_SSL", value: process.env.POSTGRES_URL_NO_SSL },
+    { source: "APP_DATABASE_URL_PLUS_PGPASSWORD", value: buildAppUrlWithPassword() },
+    { source: "COMPOSED_PG_COMPONENTS_URL", value: buildUrlFromPgComponents() },
   ]
     .map((candidate) => ({ ...candidate, value: candidate.value?.trim() ?? "" }))
     .filter((candidate) => candidate.value.length > 0);
