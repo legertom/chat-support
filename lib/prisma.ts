@@ -47,6 +47,19 @@ function hasDatabasePassword(value: string): boolean {
   }
 }
 
+function getDatabaseIdentity(value: string): { username: string; password: string; database: string } | null {
+  try {
+    const parsed = new URL(value);
+    return {
+      username: parsed.username,
+      password: parsed.password,
+      database: parsed.pathname.replace(/^\//, ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function isNeonHostname(hostname: string): boolean {
   return hostname.endsWith(".aws.neon.tech");
 }
@@ -119,13 +132,27 @@ function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: s
     return first;
   }
 
-  if (first.source === "APP_DATABASE_URL") {
+  if (first.source.startsWith("APP_DATABASE_URL")) {
     return first;
   }
 
+  const firstIdentity = getDatabaseIdentity(first.value);
   const poolerCandidate = prioritizedCandidates.find((candidate) => {
     const hostname = getDatabaseHostname(candidate.value);
-    return isNeonHostname(hostname) && isPoolerHostname(hostname);
+    if (!isNeonHostname(hostname) || !isPoolerHostname(hostname)) {
+      return false;
+    }
+
+    if (!firstIdentity) {
+      return true;
+    }
+
+    const candidateIdentity = getDatabaseIdentity(candidate.value);
+    return (
+      candidateIdentity?.username === firstIdentity.username &&
+      candidateIdentity?.password === firstIdentity.password &&
+      candidateIdentity?.database === firstIdentity.database
+    );
   });
 
   if (poolerCandidate) {
