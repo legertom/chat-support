@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { ApiError, jsonError, parsePaginationCursor } from "@/lib/http";
 import { parseJsonBody } from "@/lib/request";
 import { requireDbUser } from "@/lib/server-auth";

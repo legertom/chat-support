@@ -3,7 +3,7 @@ import type { ApiKeyProvider } from "@prisma/client";
 import { DEFAULT_MODEL_ID, findModelSpec, MODEL_SPECS, parseModelId } from "@/lib/models";
 import { getDynamicServerModelCatalog, hasConfiguredServerKey, resolveServerModelId } from "@/lib/server-models";
 import { ApiError } from "@/lib/http";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { assertThreadAccess } from "@/lib/threads";
 import { decryptApiKeyWithMetadata, encryptApiKey, maskApiKey } from "@/lib/user-api-keys";
 import { logUserApiKeyAuditEvent } from "@/lib/byok-audit";

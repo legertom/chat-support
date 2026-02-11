@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Prisma, type ApiKeyProvider } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { jsonError } from "@/lib/http";
 import { parseJsonBody } from "@/lib/request";
 import { requireDbUser } from "@/lib/server-auth";

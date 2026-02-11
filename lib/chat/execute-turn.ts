@@ -4,7 +4,7 @@ import { buildRagSystemPrompt, trimConversation } from "@/lib/rag";
 import { retrieveTopChunks } from "@/lib/retrieval";
 import { getRetrievalMultiplierMap } from "@/lib/retrieval-weighting";
 import { ApiError } from "@/lib/http";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { estimateMaxTurnCostCents, reserveBudget, usdToCentsCeil } from "@/lib/wallet";
 import type { PreparedChatRequest } from "./prepare-request";
 

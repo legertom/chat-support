@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 
 const MAX_MULTIPLIER = 1.2;
 const MIN_MULTIPLIER = 0.7;

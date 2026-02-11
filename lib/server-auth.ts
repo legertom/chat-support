@@ -1,6 +1,6 @@
 import type { Prisma, User } from "@prisma/client";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { ApiError } from "@/lib/http";
 import { normalizeEmail } from "@/lib/config";
 

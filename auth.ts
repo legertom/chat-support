@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import type { InviteStatus, Prisma, UserRole } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { DEFAULT_STARTING_CREDIT_CENTS } from "@/lib/config";
 import { evaluateLoginAccess, normalizeMaybeEmail, resolveInitialRole } from "@/lib/auth-logic";
 import { getAuthSecret, getBasicAuthRole } from "@/lib/auth-env";

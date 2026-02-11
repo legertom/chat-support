@@ -1,5 +1,5 @@
 import type { ApiKeyProvider } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 
 type UserApiKeyAuditAction = "user_api_key.create" | "user_api_key.update" | "user_api_key.delete" | "user_api_key.use";
 type UserApiKeyAuditResult = "success" | "failure";

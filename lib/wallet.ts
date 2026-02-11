@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { calculateCost, findModelSpec, type ModelSpec } from "@/lib/models";
 import { estimateTokens } from "@/lib/tokens";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { ApiError } from "@/lib/http";
 
 const RESERVATION_SAFETY_MULTIPLIER = 1.25;

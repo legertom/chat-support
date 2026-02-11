@@ -1,13 +1,6 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
-import { assertUserApiKeyEncryptionConfigured } from "@/lib/user-api-keys";
+export type EnvCandidate = { name: string; value: string | undefined };
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-type EnvCandidate = { name: string; value: string | undefined };
-
-function nonEmptyEnvValues(candidates: ReadonlyArray<EnvCandidate>): Array<{ source: string; value: string }> {
+export function nonEmptyEnvValues(candidates: ReadonlyArray<EnvCandidate>): Array<{ source: string; value: string }> {
   const resolved: Array<{ source: string; value: string }> = [];
 
   for (const candidate of candidates) {
@@ -23,7 +16,7 @@ function nonEmptyEnvValues(candidates: ReadonlyArray<EnvCandidate>): Array<{ sou
   return resolved;
 }
 
-function getDatabaseHost(value: string): string {
+export function getDatabaseHost(value: string): string {
   try {
     return new URL(value).host;
   } catch {
@@ -31,7 +24,7 @@ function getDatabaseHost(value: string): string {
   }
 }
 
-function getDatabaseHostname(value: string): string {
+export function getDatabaseHostname(value: string): string {
   try {
     return new URL(value).hostname;
   } catch {
@@ -60,7 +53,7 @@ function getDatabaseIdentity(value: string): { username: string; password: strin
   }
 }
 
-function isNeonHostname(hostname: string): boolean {
+export function isNeonHostname(hostname: string): boolean {
   return hostname.endsWith(".aws.neon.tech");
 }
 
@@ -68,7 +61,7 @@ function isPoolerHostname(hostname: string): boolean {
   return hostname.includes("-pooler.");
 }
 
-function buildAppUrlWithFallbackCredentials(value: string | undefined): string | undefined {
+export function buildAppUrlWithFallbackCredentials(value: string | undefined): string | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
@@ -105,7 +98,7 @@ function buildAppUrlWithFallbackCredentials(value: string | undefined): string |
   }
 }
 
-function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: string; value: string } | null {
+export function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: string; value: string } | null {
   const allNonEmpty = nonEmptyEnvValues(candidates);
   const candidatesWithPassword = allNonEmpty.filter((candidate) => hasDatabasePassword(candidate.value));
   const passwordlessSources =
@@ -165,7 +158,7 @@ function selectDatabaseUrl(candidates: ReadonlyArray<EnvCandidate>): { source: s
   return first;
 }
 
-function normalizeDatabaseUrl(value: string): { value: string; adjustments: string[] } {
+export function normalizeDatabaseUrl(value: string): { value: string; adjustments: string[] } {
   const adjustments: string[] = [];
 
   try {
@@ -191,74 +184,4 @@ function normalizeDatabaseUrl(value: string): { value: string; adjustments: stri
   } catch {
     return { value, adjustments };
   }
-}
-
-const rawAppDatabaseUrl = process.env.APP_DATABASE_URL;
-const rawDatabaseUrlUnpooled = process.env.DATABASE_URL_UNPOOLED;
-const rawPostgresUrlNonPooling = process.env.POSTGRES_URL_NON_POOLING;
-const rawDatabaseUrl = process.env.DATABASE_URL;
-const rawPostgresPrismaUrl = process.env.POSTGRES_PRISMA_URL;
-const rawPostgresUrl = process.env.POSTGRES_URL;
-const rawAppDatabaseUrlWithFallbackCredentials = buildAppUrlWithFallbackCredentials(rawAppDatabaseUrl);
-
-const resolvedDatabaseUrl = selectDatabaseUrl([
-  // APP_DATABASE_URL is user-managed and can be rotated quickly when DB credentials change.
-  { name: "APP_DATABASE_URL", value: rawAppDatabaseUrl },
-  { name: "APP_DATABASE_URL_PLUS_FALLBACK_CREDS", value: rawAppDatabaseUrlWithFallbackCredentials },
-  { name: "POSTGRES_PRISMA_URL", value: rawPostgresPrismaUrl },
-  { name: "DATABASE_URL", value: rawDatabaseUrl },
-  { name: "POSTGRES_URL", value: rawPostgresUrl },
-  { name: "DATABASE_URL_UNPOOLED", value: rawDatabaseUrlUnpooled },
-  { name: "POSTGRES_URL_NON_POOLING", value: rawPostgresUrlNonPooling },
-]);
-
-let selectedDatabaseUrl: string | null = null;
-let selectedDatabaseHost = "invalid-url";
-
-if (resolvedDatabaseUrl) {
-  const normalizedDatabaseUrl = normalizeDatabaseUrl(resolvedDatabaseUrl.value);
-  process.env.DATABASE_URL = normalizedDatabaseUrl.value;
-  selectedDatabaseUrl = normalizedDatabaseUrl.value;
-  selectedDatabaseHost = getDatabaseHost(normalizedDatabaseUrl.value);
-  process.env.PRISMA_DATABASE_SOURCE = resolvedDatabaseUrl.source;
-  process.env.PRISMA_DATABASE_HOST = selectedDatabaseHost;
-  console.info("[db] prisma datasource url selected", {
-    source: resolvedDatabaseUrl.source,
-    host: selectedDatabaseHost,
-    adjustments: normalizedDatabaseUrl.adjustments,
-  });
-} else {
-  console.error("[db] no database url configured for prisma datasource");
-}
-
-assertUserApiKeyEncryptionConfigured();
-
-const prismaLogLevel = (process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"]) as Array<
-  "query" | "info" | "warn" | "error"
->;
-let prismaClientOptions: ConstructorParameters<typeof PrismaClient>[0] = {
-  log: prismaLogLevel,
-};
-
-if (selectedDatabaseUrl && isNeonHostname(getDatabaseHostname(selectedDatabaseUrl))) {
-  if (typeof WebSocket === "undefined") {
-    neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
-  }
-
-  prismaClientOptions = {
-    ...prismaClientOptions,
-    adapter: new PrismaNeon({ connectionString: selectedDatabaseUrl }),
-  };
-
-  console.info("[db] prisma neon adapter enabled", {
-    host: selectedDatabaseHost,
-  });
-}
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient(prismaClientOptions);
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
 }

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { neon } from "@neondatabase/serverless";
 import { getBasicAuthPassword, getBasicAuthUsername } from "@/lib/auth-env";
 

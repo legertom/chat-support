@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { deriveThreadTitleFromContent } from "@/lib/threads";
 import { finalizeReservedSpend } from "@/lib/wallet";
 import { logUserApiKeyAuditEvent } from "@/lib/byok-audit";

@@ -3,7 +3,7 @@ import { ApiError, jsonError } from "@/lib/http";
 import { parseJsonBody } from "@/lib/request";
 import { requireAdminUser } from "@/lib/server-auth";
 import { updateUserSchema } from "@/lib/validators";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { logAdminAction } from "@/lib/admin-audit";
 
 export const runtime = "nodejs";

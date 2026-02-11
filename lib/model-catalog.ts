@@ -1,7 +1,7 @@
 import "server-only";
 
 import { MODEL_SPECS, type ModelSpec } from "./models";
-import { prisma } from "./prisma";
+import { prisma } from "./db/prisma";
 import { getDynamicServerModelCatalog } from "./server-models";
 
 export async function getStatsModelCatalogForUser(userId: string): Promise<ModelSpec[]> {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { ApiError, jsonError } from "@/lib/http";
 import { requireDbUser } from "@/lib/server-auth";
 import { assertThreadAccess } from "@/lib/threads";
