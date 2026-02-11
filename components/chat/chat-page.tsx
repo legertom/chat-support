@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import styles from "./chat-page.module.css";
 import { useUserProfile } from "@/components/hooks/use-user-profile";
 import { useThreads } from "@/components/hooks/use-threads";
 import { useModelCatalog } from "@/components/hooks/use-model-catalog";
@@ -191,39 +192,39 @@ export function RagLab() {
   const sourceLabel = sources.length === 0 ? "None" : sources.length === 2 ? "Support + Dev" : sources[0];
 
   return (
-    <div className="lab-shell">
-      <header className="lab-header panel">
+    <div className={styles.labShell}>
+      <header className={`${styles.labHeader} panel`}>
         <div>
-          <p className="eyebrow">RAG Workspace</p>
+          <p className={styles.eyebrow}>RAG Workspace</p>
           <h1>Clever Support Chat</h1>
-          <p className="subtitle">Shared, persisted threads with budget and feedback controls.</p>
+          <p className={styles.subtitle}>Shared, persisted threads with budget and feedback controls.</p>
         </div>
 
-        <div className="header-stats">
-          <div className="stat-pill">
+        <div className={styles.headerStats}>
+          <div className={styles.statPill}>
             <span>Role</span>
             <strong>{me?.user.role ?? "-"}</strong>
           </div>
-          <div className="stat-pill">
+          <div className={styles.statPill}>
             <span>Credit</span>
             <strong>{formatUsdFromCents(me?.wallet.balanceCents ?? 0)}</strong>
           </div>
-          <Link href="/docs" className="header-link">
+          <Link href="/docs" className={styles.headerLink}>
             Browse Docs
           </Link>
-          <Link href="/models" className="header-link">
+          <Link href="/models" className={styles.headerLink}>
             Model Guide
           </Link>
-          <Link href="/profile" className="header-account" aria-label="Open profile">
-            <span className="header-account-avatar" aria-hidden="true">
+          <Link href="/profile" className={styles.headerAccount} aria-label="Open profile">
+            <span className={styles.headerAccountAvatar} aria-hidden="true">
               {accountInitial}
             </span>
-            <span className="header-account-name">{accountLabel}</span>
+            <span className={styles.headerAccountName}>{accountLabel}</span>
           </Link>
         </div>
       </header>
 
-      <main className="workspace">
+      <main className={styles.workspace}>
         <ThreadList
           threads={threads}
           selectedId={selectedThreadId}
@@ -240,8 +241,8 @@ export function RagLab() {
           userRole={me?.user.role}
         />
 
-        <section className="chat-column panel">
-          <div className="chat-toolbar">
+        <section className={`${styles.chatColumn} panel`}>
+          <div className={styles.chatToolbar}>
             <p>
               Thread: <strong>{threadDetail?.thread.title ?? "No thread selected"}</strong>
             </p>

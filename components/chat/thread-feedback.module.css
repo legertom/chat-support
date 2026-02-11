@@ -1,0 +1,33 @@
+.datasetNote {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 0.63rem;
+  display: grid;
+  gap: 0.34rem;
+}
+
+.datasetNote h3 {
+  margin: 0;
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.datasetNote p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #33414d;
+}
+
+.feedbackControls {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.feedbackComment {
+  min-height: 64px;
+  resize: vertical;
+}

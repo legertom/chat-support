@@ -1,6 +1,7 @@
 import { AssistantMessageText } from "@/components/assistant-message-text";
 import { MessageFeedbackBox } from "@/components/chat/message-feedback";
 import type { ThreadDetailResponse } from "@/components/api-client";
+import styles from "./thread-detail.module.css";
 
 interface ThreadDetailProps {
   threadDetail: ThreadDetailResponse | null;
@@ -18,8 +19,8 @@ export function ThreadDetail({
 }: ThreadDetailProps) {
   if (loading) {
     return (
-      <div className="messages">
-        <div className="empty-state">
+      <div className={styles.messages}>
+        <div className={styles.emptyState}>
           <p>Loading thread messages...</p>
         </div>
       </div>
@@ -28,8 +29,8 @@ export function ThreadDetail({
 
   if (!threadDetail) {
     return (
-      <div className="messages">
-        <div className="empty-state">
+      <div className={styles.messages}>
+        <div className={styles.emptyState}>
           <h2>No thread selected</h2>
           <p>Create or select a thread to start chatting.</p>
         </div>
@@ -39,8 +40,8 @@ export function ThreadDetail({
 
   if (threadDetail.messages.length === 0) {
     return (
-      <div className="messages">
-        <div className="empty-state">
+      <div className={styles.messages}>
+        <div className={styles.emptyState}>
           <h2>Ask about Clever support docs</h2>
           <p>Threads are visible org-wide by default unless created as private.</p>
         </div>
@@ -49,23 +50,23 @@ export function ThreadDetail({
   }
 
   return (
-    <div className="messages">
+    <div className={styles.messages}>
       {threadDetail.messages.map((message) => (
-        <article key={message.id} className={`message-card ${message.role}`}>
+        <article key={message.id} className={`${styles.messageCard} ${message.role}`}>
           <header>
-            <span className="role-label">
+            <span className={styles.roleLabel}>
               {message.role === "assistant" ? "Assistant" : message.role === "user" ? "You" : "System"}
             </span>
-            <span className="timestamp">{new Date(message.createdAt).toLocaleString()}</span>
+            <span className={styles.timestamp}>{new Date(message.createdAt).toLocaleString()}</span>
           </header>
 
           {message.role === "assistant" ? (
             <AssistantMessageText content={message.content} hasStructuredCitations={message.citations.length > 0} />
           ) : (
-            <p className="message-text user-text">{message.content}</p>
+            <p className={`${styles.messageText} ${styles.userText}`}>{message.content}</p>
           )}
 
-          <footer className="message-meta">
+          <footer className={styles.messageMeta}>
             {message.modelId ? <span>{message.modelId}</span> : null}
             {message.provider ? <span>{message.provider}</span> : null}
             {message.usage?.inputTokens ? <span>Input {message.usage.inputTokens.toLocaleString()} tok</span> : null}
@@ -79,16 +80,16 @@ export function ThreadDetail({
           </footer>
 
           {message.citations.length > 0 ? (
-            <details className="citations">
+            <details className={styles.citations}>
               <summary>Sources ({message.citations.length})</summary>
               {message.citations.map((citation) => (
-                <div key={citation.id} className="citation-row">
-                  <p className="citations-title">
+                <div key={citation.id} className={styles.citationRow}>
+                  <p className={styles.citationsTitle}>
                     <a href={citation.url} target="_blank" rel="noreferrer">
                       {citation.title}
                     </a>
                   </p>
-                  <p className="snippet">{citation.snippet}</p>
+                  <p className={styles.snippet}>{citation.snippet}</p>
                 </div>
               ))}
             </details>

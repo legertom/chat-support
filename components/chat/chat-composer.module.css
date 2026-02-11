@@ -1,0 +1,50 @@
+.composer {
+  border-top: 1px solid var(--line);
+  padding-top: 0.68rem;
+  display: grid;
+  gap: 0.54rem;
+}
+
+.composerActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.composerActions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.composerActions button {
+  border: 1px solid var(--accent-strong);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  color: #fff;
+  padding: 0.5rem 1.05rem;
+  cursor: pointer;
+  font-weight: 700;
+  transition: filter 130ms ease;
+}
+
+.composerActions button:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.composerActions button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .composerActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .composerActions button {
+    width: 100%;
+  }
+}

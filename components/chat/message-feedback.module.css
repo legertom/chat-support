@@ -1,0 +1,25 @@
+.feedbackBox {
+  border-top: 1px dashed #ccd5dc;
+  padding-top: 0.52rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.feedbackTitle {
+  margin: 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.feedbackControls {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.feedbackComment {
+  min-height: 64px;
+  resize: vertical;
+}

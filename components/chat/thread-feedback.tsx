@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ThreadDetailResponse } from "@/components/api-client";
+import styles from "./thread-feedback.module.css";
 
 export function ThreadFeedbackBox({
   thread,
@@ -14,12 +15,12 @@ export function ThreadFeedbackBox({
   const [comment, setComment] = useState<string>(thread.feedback.mine?.comment ?? "");
 
   return (
-    <div className="dataset-note">
+    <div className={styles.datasetNote}>
       <h3>Thread Feedback</h3>
       <p>
         Average: {thread.feedback.averageRating ? thread.feedback.averageRating.toFixed(2) : "-"} ({thread.feedback.count})
       </p>
-      <div className="feedback-controls">
+      <div className={styles.feedbackControls}>
         <select value={rating} onChange={(event) => setRating(Number(event.target.value))} disabled={disabled}>
           <option value={5}>5 - Excellent</option>
           <option value={4}>4 - Good</option>
@@ -37,7 +38,7 @@ export function ThreadFeedbackBox({
         </button>
       </div>
       <textarea
-        className="feedback-comment"
+        className={styles.feedbackComment}
         rows={2}
         value={comment}
         onChange={(event) => setComment(event.target.value)}

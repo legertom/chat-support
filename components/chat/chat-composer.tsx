@@ -1,4 +1,5 @@
 import { useState } from "react";
+import styles from "./chat-composer.module.css";
 
 interface ChatComposerProps {
   onSend: (content: string) => void;
@@ -21,7 +22,7 @@ export function ChatComposer({ onSend, isSending, activeThreadId, error }: ChatC
   }
 
   return (
-    <div className="composer">
+    <div className={styles.composer}>
       <textarea
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
@@ -37,7 +38,7 @@ export function ChatComposer({ onSend, isSending, activeThreadId, error }: ChatC
 
       {error ? <p className="error">{error}</p> : null}
 
-      <div className="composer-actions">
+      <div className={styles.composerActions}>
         <p>{activeThreadId ? "Cmd/Ctrl + Enter to send" : "Cmd/Ctrl + Enter to send (creates a thread)"}</p>
         <button type="button" onClick={handleSend} disabled={isSending || !prompt.trim()}>
           {isSending ? "Sending..." : "Send"}

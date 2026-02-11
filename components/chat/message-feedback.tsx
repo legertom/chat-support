@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ThreadMessage } from "@/components/api-client";
+import styles from "./message-feedback.module.css";
 
 export function MessageFeedbackBox({
   message,
@@ -14,9 +15,9 @@ export function MessageFeedbackBox({
   const [comment, setComment] = useState<string>(message.feedback.mine?.comment ?? "");
 
   return (
-    <div className="feedback-box">
-      <p className="feedback-title">Rate this response</p>
-      <div className="feedback-controls">
+    <div className={styles.feedbackBox}>
+      <p className={styles.feedbackTitle}>Rate this response</p>
+      <div className={styles.feedbackControls}>
         <select value={rating} onChange={(event) => setRating(Number(event.target.value))} disabled={disabled}>
           <option value={5}>5 - Excellent</option>
           <option value={4}>4 - Good</option>
@@ -34,7 +35,7 @@ export function MessageFeedbackBox({
         </button>
       </div>
       <textarea
-        className="feedback-comment"
+        className={styles.feedbackComment}
         rows={2}
         value={comment}
         onChange={(event) => setComment(event.target.value)}

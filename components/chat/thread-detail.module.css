@@ -1,0 +1,150 @@
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.72rem;
+  padding-right: 0.18rem;
+}
+
+.messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #c6d0d8;
+}
+
+.emptyState {
+  border: 1px dashed #c3ced7;
+  border-radius: 10px;
+  background: var(--panel-soft);
+  padding: 1rem;
+  color: var(--muted);
+}
+
+.emptyState h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.emptyState p {
+  margin: 0.56rem 0 0;
+}
+
+.messageCard {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 0.78rem;
+  display: grid;
+  gap: 0.52rem;
+  animation: rise 220ms ease both;
+}
+
+.messageCard.user {
+  border-left: 3px solid var(--accent-warm);
+}
+
+.messageCard.assistant {
+  border-left: 3px solid var(--accent-cool);
+}
+
+.messageCard header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.roleLabel {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-cool);
+}
+
+.timestamp {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.messageText {
+  font-size: 0.93rem;
+  line-height: 1.48;
+  color: #1f2b36;
+  overflow-wrap: anywhere;
+}
+
+.userText {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.messageMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.messageMeta span {
+  border: 1px solid #d4dde4;
+  background: #f6f9fb;
+  border-radius: 999px;
+  padding: 0.2rem 0.52rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.citations {
+  border: 1px solid #d3dce3;
+  background: #fafcfd;
+  border-radius: 8px;
+  padding: 0.4rem 0.52rem;
+}
+
+.citationsTitle {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.citations summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: #284f6b;
+}
+
+.citations p {
+  margin: 0.42rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.citationRow + .citationRow {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed #ccd5dc;
+}
+
+.citations a {
+  color: #1e4f73;
+  word-break: break-word;
+}
+
+.snippet {
+  color: #30404f;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(5px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

@@ -1,0 +1,198 @@
+.labShell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1rem;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.labHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-left: 5px solid var(--accent);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+.headerStats {
+  display: flex;
+  gap: 0.68rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.statPill {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 0.48rem 0.62rem;
+  min-width: 114px;
+}
+
+.statPill span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.statPill strong {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.95fr) minmax(0, 1.8fr) minmax(320px, 1fr);
+  gap: 1rem;
+  min-height: 0;
+  height: 100%;
+}
+
+.chatColumn {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.95rem;
+  gap: 0.7rem;
+}
+
+.chatToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.chatToolbar p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.chatToolbar strong {
+  color: var(--ink);
+}
+
+.headerLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #edf3f8;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.46rem 0.7rem;
+}
+
+.headerLink:hover {
+  border-color: var(--accent-cool);
+  background: #e0ebf3;
+}
+
+.headerAccount {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.46rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: #edf3f8;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.34rem 0.6rem 0.34rem 0.36rem;
+}
+
+.headerAccount:hover {
+  border-color: var(--accent-cool);
+  background: #e0ebf3;
+}
+
+.headerAccountAvatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #d9e6f1;
+  color: #1e425c;
+  border: 1px solid #b9c8d4;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.headerAccountName {
+  max-width: 16ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1024px) {
+  .labShell {
+    height: auto;
+    overflow: visible;
+    grid-template-rows: none;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    height: auto;
+  }
+
+  .chatColumn {
+    overflow: visible;
+  }
+
+  .labHeader {
+    flex-direction: column;
+  }
+
+  .headerStats {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 640px) {
+  .labShell {
+    padding: 0.78rem;
+  }
+
+  .headerStats {
+    flex-wrap: wrap;
+  }
+}
