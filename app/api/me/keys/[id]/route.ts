@@ -8,7 +8,7 @@ import { updateUserApiKeySchema } from "@/lib/validators";
 import { encryptApiKey, maskApiKey } from "@/lib/user-api-keys";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestCorrelationId } from "@/lib/request-id";
-import { logUserApiKeyAuditEvent } from "@/lib/byok-audit";
+import { logApiKeySuccess, logApiKeyFailure } from "@/lib/api-key-route-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,26 +83,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       },
     });
 
-    await logUserApiKeyAuditEvent({
-      actorUserId: user.id,
+    await logApiKeySuccess({
+      userId: user.id,
       action: "user_api_key.update",
-      targetId: updated.id,
+      keyId: updated.id,
       provider: updated.provider,
-      result: "success",
       requestId,
     });
 
     return NextResponse.json({ key: updated });
   } catch (error) {
     if (actorUserId) {
-      await logUserApiKeyAuditEvent({
-        actorUserId,
+      await logApiKeyFailure({
+        userId: actorUserId,
         action: "user_api_key.update",
-        targetId,
+        keyId: targetId,
         provider: providerForAudit,
-        result: "failure",
         requestId,
-        reasonCode: toAuditReasonCode(error),
+        error,
       });
     }
 
@@ -175,41 +173,27 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
       throw new ApiError(404, "Saved key not found.", "api_key_not_found");
     }
 
-    await logUserApiKeyAuditEvent({
-      actorUserId: user.id,
+    await logApiKeySuccess({
+      userId: user.id,
       action: "user_api_key.delete",
-      targetId: existing.id,
+      keyId: existing.id,
       provider: existing.provider,
-      result: "success",
       requestId,
     });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (actorUserId) {
-      await logUserApiKeyAuditEvent({
-        actorUserId,
+      await logApiKeyFailure({
+        userId: actorUserId,
         action: "user_api_key.delete",
-        targetId,
+        keyId: targetId,
         provider: providerForAudit,
-        result: "failure",
         requestId,
-        reasonCode: toAuditReasonCode(error),
+        error,
       });
     }
 
     return jsonError(error);
   }
-}
-
-function toAuditReasonCode(error: unknown): string {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return error.code;
-  }
-
-  if (error instanceof Error && "code" in error && typeof (error as { code?: unknown }).code === "string") {
-    return (error as { code: string }).code;
-  }
-
-  return "unexpected_error";
 }

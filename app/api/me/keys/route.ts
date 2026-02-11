@@ -8,7 +8,7 @@ import { createUserApiKeySchema } from "@/lib/validators";
 import { encryptApiKey, maskApiKey } from "@/lib/user-api-keys";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestCorrelationId } from "@/lib/request-id";
-import { logUserApiKeyAuditEvent } from "@/lib/byok-audit";
+import { logApiKeySuccess, logApiKeyFailure } from "@/lib/api-key-route-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,26 +77,24 @@ export async function POST(request: Request) {
       },
     });
 
-    await logUserApiKeyAuditEvent({
-      actorUserId: user.id,
+    await logApiKeySuccess({
+      userId: user.id,
       action: "user_api_key.create",
-      targetId: created.id,
+      keyId: created.id,
       provider: created.provider,
-      result: "success",
       requestId,
     });
 
     return NextResponse.json({ key: created }, { status: 201 });
   } catch (error) {
     if (actorUserId) {
-      await logUserApiKeyAuditEvent({
-        actorUserId,
+      await logApiKeyFailure({
+        userId: actorUserId,
         action: "user_api_key.create",
-        targetId: "unknown",
+        keyId: "unknown",
         provider: providerForAudit,
-        result: "failure",
         requestId,
-        reasonCode: toAuditReasonCode(error),
+        error,
       });
     }
 
@@ -117,16 +115,4 @@ export async function POST(request: Request) {
 
     return jsonError(error);
   }
-}
-
-function toAuditReasonCode(error: unknown): string {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return error.code;
-  }
-
-  if (error instanceof Error && "code" in error && typeof (error as { code?: unknown }).code === "string") {
-    return (error as { code: string }).code;
-  }
-
-  return "unexpected_error";
 }
