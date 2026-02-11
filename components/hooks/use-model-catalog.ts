@@ -14,7 +14,7 @@ export function useModelCatalog() {
     try {
       const stats = await fetchStats();
       if (Array.isArray(stats.models) && stats.models.length > 0) {
-        setAvailableModels(stats.models);
+        setAvailableModels(stats.models as ModelSpec[]);
         setModelId((current) => {
           if (stats.models.some((model) => model.id === current)) {
             return current;

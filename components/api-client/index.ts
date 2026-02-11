@@ -210,6 +210,8 @@ export async function postMessage(body: PostMessageRequest): Promise<ChatRespons
   error?: string;
   code?: string;
   remainingBalanceCents?: number;
+  ok: boolean;
+  status: number;
 }> {
   const response = await fetch("/api/chat", {
     method: "POST",
