@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     threadFindUnique: vi.fn(),
     messageCreate: vi.fn(),
     messageFindMany: vi.fn(),
+    walletFindUnique: vi.fn(),
     prismaTransaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
         message: {
@@ -46,6 +47,9 @@ vi.mock("@/lib/prisma", () => ({
     message: {
       create: mocks.messageCreate,
       findMany: mocks.messageFindMany,
+    },
+    wallet: {
+      findUnique: mocks.walletFindUnique,
     },
     $transaction: mocks.prismaTransaction,
   },
