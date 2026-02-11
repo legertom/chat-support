@@ -6,6 +6,7 @@ import styles from "./chat-page.module.css";
 import { useUserProfile } from "@/components/hooks/use-user-profile";
 import { useThreads } from "@/components/hooks/use-threads";
 import { useModelCatalog } from "@/components/hooks/use-model-catalog";
+import { usePersistentSettings } from "@/components/hooks/use-persistent-settings";
 import { ThreadList } from "@/components/chat/thread-list";
 import { ThreadDetail } from "@/components/chat/thread-detail";
 import { ChatComposer } from "@/components/chat/chat-composer";
@@ -38,6 +39,7 @@ export function RagLab() {
     loadingThreadDetail,
   } = useThreads();
   const { modelId, setModelId, availableModels } = useModelCatalog();
+  const { settings, updateSetting } = usePersistentSettings();
 
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -50,9 +52,11 @@ export function RagLab() {
   const [datasetStats, setDatasetStats] = useState<StatsResponse["dataset"] | null>(null);
   const [showAllModels, setShowAllModels] = useState(false);
   const [sources, setSources] = useState<RetrievalSource[]>(["support", "dev"]);
-  const [topK, setTopK] = useState(6);
-  const [temperature, setTemperature] = useState(0.2);
-  const [maxOutputTokens, setMaxOutputTokens] = useState(1200);
+
+  // These are now derived from/synced to persistent settings
+  const topK = settings.ragTopK;
+  const temperature = settings.temperature;
+  const maxOutputTokens = settings.maxOutputTokens;
 
   useEffect(() => {
     void loadApiKeys();
@@ -283,16 +287,18 @@ export function RagLab() {
           sources={sources}
           onToggleSource={toggleSource}
           topK={topK}
-          onTopKChange={setTopK}
+          onTopKChange={(val) => updateSetting("ragTopK", val)}
           temperature={temperature}
-          onTemperatureChange={setTemperature}
+          onTemperatureChange={(val) => updateSetting("temperature", val)}
           maxOutputTokens={maxOutputTokens}
-          onMaxOutputTokensChange={setMaxOutputTokens}
+          onMaxOutputTokensChange={(val) => updateSetting("maxOutputTokens", val)}
           threadDetail={threadDetail}
           submittingThreadFeedback={submittingThreadFeedback}
           onSubmitThreadFeedback={handleSubmitThreadFeedback}
           datasetStats={datasetStats}
           me={me}
+          settings={settings}
+          onUpdateSetting={updateSetting}
         />
       </main>
     </div>

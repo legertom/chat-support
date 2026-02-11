@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ThreadFeedbackBox } from "@/components/chat/thread-feedback";
 import type { ModelSpec } from "@/lib/models";
 import type { ApiKeyProvider, UserApiKeyItem, ThreadDetailResponse, StatsResponse, MeResponse } from "@/components/api-client";
+import type { ResearchSettings } from "@/components/hooks/use-persistent-settings";
 
 type RetrievalSource = "support" | "dev";
 
@@ -38,9 +39,12 @@ interface SettingsPanelProps {
   onSubmitThreadFeedback: (rating: number, comment?: string) => void;
   datasetStats: StatsResponse["dataset"] | null;
   me: MeResponse | null;
+  settings: ResearchSettings;
+  onUpdateSetting: <K extends keyof ResearchSettings>(key: K, value: ResearchSettings[K]) => void;
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [newApiKeyProvider, setNewApiKeyProvider] = useState<ApiKeyProvider>("openai");
   const [newApiKeyLabel, setNewApiKeyLabel] = useState("");
   const [newApiKeyValue, setNewApiKeyValue] = useState("");
@@ -233,6 +237,57 @@ export function SettingsPanel(props: SettingsPanelProps) {
           onChange={(event) => props.onMaxOutputTokensChange(Number(event.target.value) || 1200)}
         />
       </label>
+
+      <div className="advanced-settings-trigger">
+        <button
+          className={`ghost-button researcher-toggle ${showAdvanced ? "active" : ""}`}
+          onClick={() => setShowAdvanced(!showAdvanced)}
+        >
+          {showAdvanced ? "Hide Advanced Research Skills" : "Show Advanced Research Skills"}
+        </button>
+      </div>
+
+      {showAdvanced && (
+        <div className="advanced-researcher-pane">
+          <div className="settings-field">
+            <p className="settings-field-label">RAG Chunk Size ({props.settings.ragChunkSize})</p>
+            <input
+              type="range" min="100" max="1500" step="50"
+              value={props.settings.ragChunkSize}
+              onChange={(e) => props.onUpdateSetting("ragChunkSize", parseInt(e.target.value))}
+            />
+          </div>
+
+          <div className="settings-field">
+            <p className="settings-field-label">Daily Volume ({props.settings.dailyVolume})</p>
+            <input
+              type="range" min="1" max="5000" step="1"
+              value={props.settings.dailyVolume}
+              onChange={(e) => props.onUpdateSetting("dailyVolume", parseInt(e.target.value))}
+            />
+          </div>
+
+          <div className="settings-field">
+            <p className="settings-field-label">Markup / Margin ({props.settings.markupPercent}%)</p>
+            <input
+              type="range" min="0" max="500" step="5"
+              value={props.settings.markupPercent}
+              onChange={(e) => props.onUpdateSetting("markupPercent", parseInt(e.target.value))}
+            />
+          </div>
+
+          <div className="settings-field">
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={props.settings.promptCachingEnabled}
+                onChange={(e) => props.onUpdateSetting("promptCachingEnabled", e.target.checked)}
+              />
+              <span>Prompt Caching</span>
+            </label>
+          </div>
+        </div>
+      )}
 
       {props.threadDetail ? (
         <ThreadFeedbackBox

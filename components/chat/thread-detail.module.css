@@ -4,6 +4,7 @@
   display: grid;
   gap: 0.72rem;
   padding-right: 0.18rem;
+  align-content: start;
 }
 
 .messages::-webkit-scrollbar {
@@ -41,6 +42,7 @@
   display: grid;
   gap: 0.52rem;
   animation: rise 220ms ease both;
+  align-content: start;
 }
 
 .messageCard.user {

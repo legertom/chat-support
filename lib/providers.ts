@@ -56,30 +56,44 @@ async function callOpenAi(
     throw new Error("Missing OpenAI API key. Set OPENAI_API_KEY or provide a key in the UI.");
   }
 
+  const isResponsesModel = isOpenAiResponsesModel(params.apiModel);
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const endpoint = isResponsesModel ? `${baseUrl}/responses` : `${baseUrl}/chat/completions`;
 
   const requestBody: Record<string, unknown> = {
     model: params.apiModel,
-    messages: [
+  };
+
+  if (isResponsesModel) {
+    requestBody.input = [
       { role: "system", content: params.systemPrompt },
       ...params.messages.map((message) => ({
         role: message.role,
         content: message.content,
       })),
-    ],
-  };
-
-  if (supportsCustomTemperature(params.apiModel)) {
-    requestBody.temperature = params.temperature;
-  }
-
-  if (usesMaxCompletionTokens(params.apiModel)) {
-    requestBody.max_completion_tokens = params.maxOutputTokens;
+    ];
+    requestBody.max_output_tokens = params.maxOutputTokens;
   } else {
-    requestBody.max_tokens = params.maxOutputTokens;
+    requestBody.messages = [
+      { role: "system", content: params.systemPrompt },
+      ...params.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    ];
+
+    if (supportsCustomTemperature(params.apiModel)) {
+      requestBody.temperature = params.temperature;
+    }
+
+    if (usesMaxCompletionTokens(params.apiModel)) {
+      requestBody.max_completion_tokens = params.maxOutputTokens;
+    } else {
+      requestBody.max_tokens = params.maxOutputTokens;
+    }
   }
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -94,18 +108,43 @@ async function callOpenAi(
     throw new Error(`OpenAI API error (${response.status}): ${extractErrorMessage(json)}`);
   }
 
-  const choices = Array.isArray(json.choices) ? json.choices : [];
-  const firstChoice = choices[0] as { message?: { content?: unknown } } | undefined;
-  const text = normalizeContent(firstChoice?.message?.content);
+  let text = "";
+  let usage: UsageMetrics;
 
-  const usageObj = (json.usage ?? {}) as Record<string, unknown>;
-  const usage = normalizeUsage({
-    inputTokens: toNumber(usageObj.prompt_tokens),
-    outputTokens: toNumber(usageObj.completion_tokens),
-    totalTokens: toNumber(usageObj.total_tokens),
-    fallbackInputText: `${params.systemPrompt}\n${params.messages.map((m) => m.content).join("\n")}`,
-    fallbackOutputText: text,
-  });
+  if (isResponsesModel) {
+    const output = Array.isArray(json.output) ? json.output : [];
+    const firstOutput = output[0] as
+      | { content?: Array<{ type: string; text?: string }> }
+      | undefined;
+    const contentParts = Array.isArray(firstOutput?.content) ? firstOutput.content : [];
+    text = contentParts
+      .filter((p) => p.type === "output_text")
+      .map((p) => p.text ?? "")
+      .join("\n")
+      .trim();
+
+    const usageObj = (json.usage ?? {}) as Record<string, unknown>;
+    usage = normalizeUsage({
+      inputTokens: toNumber(usageObj.input_tokens),
+      outputTokens: toNumber(usageObj.output_tokens),
+      totalTokens: toNumber(usageObj.total_tokens),
+      fallbackInputText: `${params.systemPrompt}\n${params.messages.map((m) => m.content).join("\n")}`,
+      fallbackOutputText: text,
+    });
+  } else {
+    const choices = Array.isArray(json.choices) ? json.choices : [];
+    const firstChoice = choices[0] as { message?: { content?: unknown } } | undefined;
+    text = normalizeContent(firstChoice?.message?.content);
+
+    const usageObj = (json.usage ?? {}) as Record<string, unknown>;
+    usage = normalizeUsage({
+      inputTokens: toNumber(usageObj.prompt_tokens),
+      outputTokens: toNumber(usageObj.completion_tokens),
+      totalTokens: toNumber(usageObj.total_tokens),
+      fallbackInputText: `${params.systemPrompt}\n${params.messages.map((m) => m.content).join("\n")}`,
+      fallbackOutputText: text,
+    });
+  }
 
   return {
     modelId: params.modelId,
@@ -327,9 +366,13 @@ function extractErrorMessage(json: Record<string, unknown>): string {
 }
 
 function usesMaxCompletionTokens(model: string): boolean {
-  return model.startsWith("gpt-5");
+  return model.startsWith("gpt-5") && !isOpenAiResponsesModel(model);
 }
 
 function supportsCustomTemperature(model: string): boolean {
-  return !model.startsWith("gpt-5");
+  return !model.startsWith("gpt-5") && !isOpenAiResponsesModel(model);
+}
+
+function isOpenAiResponsesModel(model: string): boolean {
+  return model.includes("-pro");
 }

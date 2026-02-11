@@ -274,8 +274,12 @@ export function AdminConsole() {
               {users?.users.map((user) => (
                 <tr key={user.id}>
                   <td>{user.email}</td>
-                  <td>{user.role}</td>
-                  <td>{user.status}</td>
+                  <td>
+                    <span className={`role-badge ${user.role}`}>{user.role}</span>
+                  </td>
+                  <td>
+                    <span className={`status-badge ${user.status}`}>{user.status}</span>
+                  </td>
                   <td>{usd(user.wallet.balanceCents)}</td>
                   <td>{formatDate(user.createdAt)}</td>
                   <td>{user.lastActiveAt ? formatDate(user.lastActiveAt) : "-"}</td>
@@ -292,7 +296,7 @@ export function AdminConsole() {
                           )
                         }
                       >
-                        Toggle role
+                        {user.role === "admin" ? "Demote to member" : "Promote to admin"}
                       </button>
                       <button
                         type="button"
@@ -305,7 +309,7 @@ export function AdminConsole() {
                           )
                         }
                       >
-                        Toggle status
+                        {user.status === "active" ? "Disable" : "Activate"}
                       </button>
                       <button type="button" className="ghost-button" onClick={() => void perform(() => addCredit(user.id))}>
                         Top up
@@ -317,7 +321,7 @@ export function AdminConsole() {
             </tbody>
           </table>
         </div>
-      </section>
+      </section >
 
       <section className="panel admin-panel">
         <h2>Invites</h2>
@@ -410,7 +414,7 @@ export function AdminConsole() {
           ))}
         </div>
       </section>
-    </main>
+    </main >
   );
 }
 
