@@ -1506,3 +1506,41 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  text-align: center;
+}
+
+.error-boundary h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+  color: var(--ink);
+}
+
+.error-boundary p {
+  margin: 0 0 1.5rem 0;
+  color: var(--muted);
+  max-width: 500px;
+  line-height: 1.6;
+}
+
+.error-boundary button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.error-boundary button:hover {
+  background: var(--accent-strong);
+}
