@@ -73,7 +73,6 @@ export async function GET(request: Request) {
           },
         },
         messages: {
-          take: 1,
           orderBy: {
             createdAt: "desc",
           },
@@ -82,6 +81,8 @@ export async function GET(request: Request) {
             role: true,
             content: true,
             createdAt: true,
+            costCents: true,
+            usage: true,
           },
         },
         _count: {
@@ -96,23 +97,39 @@ export async function GET(request: Request) {
     const items = hasMore ? threads.slice(0, limit) : threads;
 
     return NextResponse.json({
-      items: items.map((thread) => ({
-        id: thread.id,
-        title: thread.title,
-        visibility: thread.visibility,
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-        createdBy: thread.createdBy,
-        messageCount: thread._count.messages,
-        lastMessage: thread.messages[0]
-          ? {
-              id: thread.messages[0].id,
-              role: thread.messages[0].role,
-              contentPreview: thread.messages[0].content.slice(0, 180),
-              createdAt: thread.messages[0].createdAt,
-            }
-          : null,
-      })),
+      items: items.map((thread) => {
+        let totalCostCents = 0;
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+        for (const msg of thread.messages) {
+          totalCostCents += msg.costCents;
+          const usage = msg.usage as { inputTokens?: number; outputTokens?: number } | null;
+          if (usage) {
+            totalInputTokens += usage.inputTokens ?? 0;
+            totalOutputTokens += usage.outputTokens ?? 0;
+          }
+        }
+        return {
+          id: thread.id,
+          title: thread.title,
+          visibility: thread.visibility,
+          createdAt: thread.createdAt,
+          updatedAt: thread.updatedAt,
+          createdBy: thread.createdBy,
+          messageCount: thread._count.messages,
+          totalCostCents,
+          totalInputTokens,
+          totalOutputTokens,
+          lastMessage: thread.messages[0]
+            ? {
+                id: thread.messages[0].id,
+                role: thread.messages[0].role,
+                contentPreview: thread.messages[0].content.slice(0, 180),
+                createdAt: thread.messages[0].createdAt,
+              }
+            : null,
+        };
+      }),
       nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null,
     });
   } catch (error) {

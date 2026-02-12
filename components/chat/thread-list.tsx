@@ -83,6 +83,12 @@ export function ThreadList({
                   <span className={styles.threadMeta}>
                     {thread.messageCount.toLocaleString()} msg · {formatThreadTimestamp(thread.updatedAt)}
                   </span>
+                  <span className={styles.threadCost}>
+                    {formatPreciseUsd(thread.totalCostCents)} · {(thread.totalInputTokens + thread.totalOutputTokens).toLocaleString()} tok
+                    <span className={styles.tokenBreakdown}>
+                      ({thread.totalInputTokens.toLocaleString()} in / {thread.totalOutputTokens.toLocaleString()} out)
+                    </span>
+                  </span>
                 </button>
               </li>
             );
@@ -116,4 +122,13 @@ function formatThreadTimestamp(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/** Show full precision USD — never rounds away sub-cent values.  e.g. $0.0073 */
+function formatPreciseUsd(cents: number): string {
+  if (cents === 0) return "$0.00";
+  const usd = cents / 100;
+  // Show at least 2 decimal places, but up to 6 to preserve sub-cent precision
+  if (usd >= 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(6)}`;
 }

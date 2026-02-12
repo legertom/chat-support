@@ -34,6 +34,9 @@ export interface ThreadListItem {
     name: string | null;
   };
   messageCount: number;
+  totalCostCents: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
   lastMessage: {
     id: string;
     role: "user" | "assistant" | "system";

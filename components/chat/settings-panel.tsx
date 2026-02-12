@@ -329,5 +329,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
 }
 
 function formatUsdFromCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  const usd = cents / 100;
+  if (usd === 0) return "$0.00";
+  if (usd >= 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(6)}`;
 }
