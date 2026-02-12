@@ -21,6 +21,7 @@ if (hasGoogle) {
     Google({
       clientId: process.env.AUTH_GOOGLE_ID!.trim(),
       clientSecret: process.env.AUTH_GOOGLE_SECRET!.trim(),
+      allowDangerousEmailAccountLinking: true,
     })
   );
 }
