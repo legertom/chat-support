@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { AssistantMessageText } from "@/components/assistant-message-text";
 import { MessageFeedbackBox } from "@/components/chat/message-feedback";
 import type { ThreadDetailResponse } from "@/components/api-client";
@@ -9,6 +10,8 @@ interface ThreadDetailProps {
   userId: string | undefined;
   onSubmitMessageFeedback: (messageId: string, rating: number, comment?: string) => Promise<void>;
   submittingFeedbackMessageId: string | null;
+  streamingContent?: string | null;
+  isWaitingForResponse?: boolean;
 }
 
 export function ThreadDetail({
@@ -16,7 +19,15 @@ export function ThreadDetail({
   loading,
   onSubmitMessageFeedback,
   submittingFeedbackMessageId,
+  streamingContent,
+  isWaitingForResponse,
 }: ThreadDetailProps) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [streamingContent, threadDetail?.messages.length]);
+
   if (loading) {
     return (
       <div className={styles.messages}>
@@ -104,6 +115,24 @@ export function ThreadDetail({
           ) : null}
         </article>
       ))}
+
+      {(isWaitingForResponse || streamingContent) ? (
+        <article className={`${styles.messageCard} assistant`}>
+          <header>
+            <span className={styles.roleLabel}>Assistant</span>
+          </header>
+          {streamingContent ? (
+            <AssistantMessageText content={streamingContent} hasStructuredCitations={false} />
+          ) : (
+            <div className={styles.thinkingIndicator}>
+              <span className={styles.thinkingDot} />
+              <span className={styles.thinkingDot} />
+              <span className={styles.thinkingDot} />
+            </div>
+          )}
+        </article>
+      ) : null}
+      <div ref={messagesEndRef} />
     </div>
   );
 }

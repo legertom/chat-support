@@ -302,3 +302,71 @@ export async function fetchStats(): Promise<StatsResponse> {
   }
   return response.json();
 }
+
+export interface StreamCallbacks {
+  onDelta: (text: string) => void;
+  onDone: (result: ChatResponse & {
+    error?: string;
+    code?: string;
+    remainingBalanceCents?: number;
+    ok: boolean;
+    status: number;
+  }) => void;
+  onError: (error: string) => void;
+}
+
+export async function postMessageStream(
+  body: PostMessageRequest,
+  callbacks: StreamCallbacks
+): Promise<void> {
+  const response = await fetch("/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json();
+    if (response.status === 402) {
+      callbacks.onError(payload.error || "Insufficient balance.");
+      return;
+    }
+    throw new Error(payload.error || `Failed to send message (${response.status})`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("No response body for stream");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      const data = trimmed.slice(6);
+
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === "delta") {
+          callbacks.onDelta(parsed.text);
+        } else if (parsed.type === "done") {
+          callbacks.onDone({ ...parsed.result, ok: true, status: 200 });
+        } else if (parsed.type === "error") {
+          callbacks.onError(parsed.error);
+        }
+      } catch {
+        // Skip unparseable chunks
+      }
+    }
+  }
+}

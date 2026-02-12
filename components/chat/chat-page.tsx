@@ -13,6 +13,7 @@ import { ChatComposer } from "@/components/chat/chat-composer";
 import { SettingsPanel } from "@/components/chat/settings-panel";
 import {
   postMessage,
+  postMessageStream,
   submitMessageFeedback,
   submitThreadFeedback,
   fetchStats,
@@ -43,6 +44,7 @@ export function RagLab() {
 
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [submittingFeedbackMessageId, setSubmittingFeedbackMessageId] = useState<string | null>(null);
   const [submittingThreadFeedback, setSubmittingThreadFeedback] = useState(false);
   const [keyMode, setKeyMode] = useState<"house" | "personal">("house");
@@ -94,6 +96,7 @@ export function RagLab() {
 
     setSending(true);
     setError(null);
+    setStreamingContent(null);
 
     try {
       const threadId = selectedThreadId ?? (await createThread());
@@ -101,7 +104,7 @@ export function RagLab() {
         selectThread(threadId);
       }
 
-      const response = await postMessage({
+      const requestBody = {
         threadId,
         content,
         sources,
@@ -110,20 +113,33 @@ export function RagLab() {
         temperature,
         maxOutputTokens,
         userApiKeyId: keyMode === "personal" ? selectedUserApiKeyId : null,
-      });
+      };
 
-      if (response.status === 402 || response.code === "insufficient_balance") {
-        const remaining =
-          typeof response.remainingBalanceCents === "number" ? response.remainingBalanceCents : null;
-        setError(
-          remaining !== null
-            ? `Insufficient balance. Remaining credit: ${formatUsdFromCents(remaining)}.`
-            : response.error || "Insufficient balance."
-        );
-      }
+      await postMessageStream(requestBody, {
+        onDelta(text) {
+          setStreamingContent((prev) => (prev ?? "") + text);
+        },
+        onDone(response) {
+          setStreamingContent(null);
+          if (response.status === 402 || response.code === "insufficient_balance") {
+            const remaining =
+              typeof response.remainingBalanceCents === "number" ? response.remainingBalanceCents : null;
+            setError(
+              remaining !== null
+                ? `Insufficient balance. Remaining credit: ${formatUsdFromCents(remaining)}.`
+                : response.error || "Insufficient balance."
+            );
+          }
+        },
+        onError(errorMsg) {
+          setStreamingContent(null);
+          setError(errorMsg);
+        },
+      });
 
       await Promise.all([loadThreadDetail(), loadThreads(), refreshMe()]);
     } catch (err) {
+      setStreamingContent(null);
       setError(err instanceof Error ? err.message : "Failed to send message.");
     } finally {
       setSending(false);
@@ -264,6 +280,8 @@ export function RagLab() {
             userId={me?.user.id}
             onSubmitMessageFeedback={handleSubmitMessageFeedback}
             submittingFeedbackMessageId={submittingFeedbackMessageId}
+            streamingContent={streamingContent}
+            isWaitingForResponse={sending}
           />
 
           <ChatComposer onSend={handleSend} isSending={sending} activeThreadId={selectedThreadId} error={error} />
