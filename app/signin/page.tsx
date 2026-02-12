@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CredentialsSignInForm } from "@/components/credentials-signin-form";
+import { GoogleSignInButton } from "@/components/google-signin-button";
 import {
   getMissingBasicAuthEnvVars,
   getMissingGoogleOAuthEnvVars,
@@ -23,7 +24,6 @@ export default async function SignInPage({
       ? resolvedParams.callbackUrl
       : "/";
 
-  const googleSignInHref = `/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   const hasGoogle = hasGoogleOAuthConfig();
   const hasBasic = hasBasicAuthConfig();
   const missingGoogleVars = getMissingGoogleOAuthEnvVars();
@@ -38,9 +38,7 @@ export default async function SignInPage({
         <p>Use Google SSO or local credentials. You can enable either method from <code>.env</code>.</p>
 
         {hasGoogle ? (
-          <a href={googleSignInHref} className="primary-button">
-            Continue with Google
-          </a>
+          <GoogleSignInButton callbackUrl={callbackUrl} />
         ) : null}
 
         {hasGoogle && hasBasic ? <p className="auth-divider">or</p> : null}
